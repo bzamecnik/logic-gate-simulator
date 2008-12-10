@@ -3,53 +3,22 @@ using System.Collections.Generic;
 using System.Text;
 using System.IO;
 
+// Logic gate network simulator
 namespace LogicNetwork
 {
 
-    // (De)serialization of three-state boolean values
-    class TristateBool {
-        public static string toString(bool? value) {
-            if (value.HasValue) {
-                if (value.Value) return "1";
-                else return "0";
-            } else {
-                return "?";
-            }
-        }
-
-        public static bool? fromString(string str) {
-            if (str.Equals("1")) {
-                return true;
-            } else if (str.Equals("1")) {
-                return false;
-            } else {
-                return null;
-            }
-        }
-
-        public static string arrayToString(bool?[] array) {
-            StringBuilder sb = new StringBuilder();
-            foreach (bool? value in array) {
-                sb.Append(TristateBool.toString(value));
-            }
-            return sb.ToString().TrimEnd();
-        }
-
-        public static bool?[] arrayFromString(string array) {
-            string[] parts = array.Split(' ');
-            List<bool?> values = new List<bool?>();
-            foreach (string part in parts) {
-                values.Add(TristateBool.fromString(part));
-            }
-            return values.ToArray();
-        }
-    }
+    // TODO:
+    // - AbstractCompositeGate.tick()
+    // - Network.evaluate()
+    // - cloning
+    // - parsing from definition file
+    // - errors -> exceptions or another handling
 
     abstract class Gate {
 
         // Port
         public class Port {
-            bool? value;
+            bool? value; // three-state logic (true, false, null) = (1, 0, ?)
             
             public bool? Value {
                 get { return this.value; }
@@ -89,9 +58,9 @@ namespace LogicNetwork
             outputs = new Dictionary<string, Port>();
         }
 
-        // Make one computing step and change outputs somehow
+        // Make one computing step and change outputs somehow.
         // Return true if the gate and possibly all inner gates
-        // have stabilized, ie. output values haven't changed in the tick
+        // have stabilized, ie. output values haven't changed in the tick.
         public abstract bool tick();
 
         // Cloning support for the Prototype pattern
@@ -194,7 +163,6 @@ namespace LogicNetwork
         // Compute new output values based on input values
         // directly from transition table or default rules.
         bool?[] compute(bool?[] inputValues) {
-            // TODO:
             string input = TristateBool.arrayToString(inputValues);
             bool?[] output = new bool?[outputs.Count];
             if (transitionTable.ContainsKey(input)) {
@@ -204,11 +172,9 @@ namespace LogicNetwork
                 // default output values
                 bool? outputvalue;
                 if (input.Contains("?")) {
-                    // set all outputs to ?
-                    outputvalue = null;
+                    outputvalue = null; // set all outputs to ?
                 } else {
-                    // set all outputs to 0
-                    outputvalue = false;
+                    outputvalue = false; // set all outputs to 0
                 }
                 for (int i = 0; i < outputs.Count; i++) {
                     output[i] = outputvalue;
@@ -429,6 +395,46 @@ namespace LogicNetwork
             }
         }
 
+    }
+
+    // (De)serialization of three-state boolean values
+    class TristateBool
+    {
+        public static string toString(bool? value) {
+            if (value.HasValue) {
+                if (value.Value) return "1";
+                else return "0";
+            } else {
+                return "?";
+            }
+        }
+
+        public static bool? fromString(string str) {
+            if (str.Equals("1")) {
+                return true;
+            } else if (str.Equals("1")) {
+                return false;
+            } else {
+                return null;
+            }
+        }
+
+        public static string arrayToString(bool?[] array) {
+            StringBuilder sb = new StringBuilder();
+            foreach (bool? value in array) {
+                sb.Append(TristateBool.toString(value));
+            }
+            return sb.ToString().TrimEnd();
+        }
+
+        public static bool?[] arrayFromString(string array) {
+            string[] parts = array.Split(' ');
+            List<bool?> values = new List<bool?>();
+            foreach (string part in parts) {
+                values.Add(TristateBool.fromString(part));
+            }
+            return values.ToArray();
+        }
     }
 
     class SyntaxErrorException : ApplicationException { }
