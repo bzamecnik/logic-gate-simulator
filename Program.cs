@@ -7,27 +7,61 @@ namespace LogicNetwork
 {
 
     abstract class Gate {
+        // NOTE: Input and output ports share the space of their names
         Dictionary<string, bool?> inputs; // input ports
         Dictionary<string, bool?> outputs; // output ports
-
-        public bool? getPortValue(string portName);
-        public void setPortValue(string portName, bool? value);
 
         // Make one computing step and change outputs somehow
         // Return true if the gate and possibly all inner gates
         // have stabilized, ie. output values haven't changed in the tick
         public abstract bool tick();
 
-        // cloning support for Prototype pattern
-        public abstract void clone();
+        // Cloning support for the Prototype pattern
+        public abstract Gate clone();
 
-        // Used when defining a gate prototype:
+        // Get value of a port
+        public bool? getPortValue(string portName) {
+            if (inputs.ContainsKey(portName)) {
+                return inputs[portName];
+            } else if (outputs.ContainsKey(portName)) {
+                return outputs[portName];
+            } else {
+                return null; // error, unknown port name
+            }
+        }
 
-        // Add new input port, set default value
-        void addInputPort(string portName);
+        // Set value of a port
+        public void setPortValue(string portName, bool? value) {
+            if (inputs.ContainsKey(portName)) {
+                inputs[portName] = value;
+            } else if (outputs.ContainsKey(portName)) {
+                outputs[portName] = value;
+            } else {
+                // error, unknown port name
+            }
+        }
 
-        // Add new output port, set default value
-        void addOutputPort(string portName);
+        // These functions are used when defining a gate prototype:
+
+        // Add a new input port, set default value
+        protected void addInputPort(string portName) {
+            addPort(portName, inputs);
+        }
+
+        // Add a new output port, set default value
+        protected void addOutputPort(string portName) {
+            addPort(portName, outputs);
+        }
+
+        // Add a new port to given port group, set default value
+        private void addPort(string portName, Dictionary<string, bool?> ports) {
+            if (!ports.ContainsKey(portName)) {
+                ports.Add(portName, null);
+            } else {
+                // error, duplicate definition of a port
+            }
+        }
+
     }
 
     class SimpleGate : Gate {
@@ -37,20 +71,35 @@ namespace LogicNetwork
         // - Dictionary<string, string> might be an overhead
         Dictionary<string, string> transitionTable;
 
-        public override bool tick();
+        public override bool tick() {
+            // TODO
+            return false;
+        }
 
-        public override void clone();
+        public override Gate clone() {
+            // TODO
+            return null;
+        }
 
         // Create a simple gate prototype from string representation
-        public static SimpleGate parseSimpleGate(StreamReader inputStream);
+        public static SimpleGate parseSimpleGate(StreamReader inputStream) {
+            // TODO
+            return null;
+        }
 
         // Compute new output values based on input values
         // directly from transition table or default rules.
-        bool?[] compute(bool?[] inputValues);
-        string compute(string inputValues);
+        bool?[] compute(bool?[] inputValues) {
+            // TODO
+            return null;
+        }
+        string compute(string inputValues) {
+            // TODO
+            return null;
+        }
     }
 
-    class AbstractCompositeGate : Gate {
+    abstract class AbstractCompositeGate : Gate {
         // Inner gates
         Dictionary<string, Gate> gates; // name, Gate
         // Connections between inner gates' (or this gate's) ports.
@@ -59,36 +108,66 @@ namespace LogicNetwork
         // usually query by destination.
         Dictionary<string, string> connections; // dest, src
 
-        public override bool tick();
-
-        public override void clone();
+        public override bool tick() {
+            // TODO
+            return false;
+        }
 
         // Create an abstract composite gate prototype from string representation
         // This is a common code for its descentants not to be called directly.
         // Specific details should be separated into virutal methods.
-        AbstractCompositeGate parseAbstractCompositeGate(StreamReader inputStream);
+        AbstractCompositeGate parseAbstractCompositeGate(StreamReader inputStream) {
+            // TODO
+            return null;
+        }
 
         // Transmit a value from source [gate.]port to destination [gate.]port
-        void transmit(string src, string dest);
+        void transmit(string src, string dest) {
+            // TODO
+        }
         // or: void transmit(string srcGate, string srcPort, string destGate, string destPort);
 
         // Add an inner gate
         // - check if gate is not a Network
-        void addGate(Gate gate);
+        void addGate(string gateName, Gate gate) {
+            if ((gate != null) && !(gate is Network)) {
+                gates.Add(gateName, gate);
+            } else {
+                // error
+            }
+        }
 
         // Connect two ports
-        void connect(string src, string dest);
+        void connect(string src, string dest) {
+            // TODO
+        }
     }
 
     class CompositeGate : AbstractCompositeGate {
         // Create a composite gate prototype from string representation
         // NOTE: A common parsing code is in parseAbstractCompositeGate().
-        public static CompositeGate parseCompositeGate(StreamReader inputStream);
+        public static CompositeGate parseCompositeGate(StreamReader inputStream) {
+            // TODO
+            return null;
+        }
+
+        public override Gate clone() {
+            // TODO
+            return null;
+        }
     }
 
     class Network : AbstractCompositeGate {
         // Create a network prototype from string representation
-        public static Network parseNetwork(StreamReader inputStream);
+        public static Network parseNetwork(StreamReader inputStream) {
+            // TODO
+            return null;
+        }
+
+        public override Gate clone() {
+            // TODO
+            return null;
+        }
 
         // Maximum number of ticks before we decide the network can't stabilize.
         const int MAX_TICKS = 1000000;
@@ -102,6 +181,7 @@ namespace LogicNetwork
                 if (tick()) break;
             }
             // TODO: return ("{0} {1}", ticks, outputs)
+            return null;
         }
     }
 
@@ -130,16 +210,25 @@ namespace LogicNetwork
 
         // Parse a file with definition of all the gates and a network
         // Can throw SyntaxErrorException
-        public void parseGates(StreamReader inputStream);
+        public void parseGates(StreamReader inputStream) {
+            // TODO
+        }
         
         // Create a clone of a defined gate prototype
-        public Gate createGate(string gateName);
+        public Gate createGate(string gateName) {
+            // TODO
+            return null;
+        }
 
-        // Get the network
-        public Network createNetwork();
+        // The network as a property
+        public Network Network {
+            get { return network; }
+        }
 
         // Register a new gate prototype
-        void defineGate(string gateName, Gate gate);
+        void defineGate(string gateName, Gate gate) {
+            // TODO
+        }
 
     }
 
@@ -161,7 +250,7 @@ namespace LogicNetwork
 
                     gateFactory.parseGates(reader);
 
-                } catch (FileNotFoundException ex) {
+                } catch (FileNotFoundException) {
                     Console.WriteLine("File not found: {0}", args[0]);
                     return;
                 } finally {
@@ -171,7 +260,7 @@ namespace LogicNetwork
                 }
                 
                 // create an instance of the network
-                Network network = gateFactory.createNetwork();
+                Network network = gateFactory.Network;
                 
                 // main evaluating loop
                 string line = "";
