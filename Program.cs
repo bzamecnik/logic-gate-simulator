@@ -9,8 +9,8 @@ namespace LogicNetwork
 
     // TODO:
     // - AbstractCompositeGate.tick()
-    // - Network.evaluate()
-    // - cloning
+    // * Network.evaluate()
+    // * cloning
     // - parsing from definition file
     // - errors -> exceptions or another handling
 
@@ -27,6 +27,10 @@ namespace LogicNetwork
 
             public Port() {
                 value = null;
+            }
+
+            public Port(Port other) {
+                value = other.value;
             }
 
             public Port(bool? value) {
@@ -47,10 +51,10 @@ namespace LogicNetwork
         protected Gate(Gate other) {
             initialize();
             foreach (KeyValuePair<string, Port> kvp in other.inputs) {
-                inputs.Add(kvp.Key, kvp.Value);
+                inputs.Add(kvp.Key, new Port(kvp.Value)); // copy Ports
             }
             foreach (KeyValuePair<string, Port> kvp in other.outputs) {
-                outputs.Add(kvp.Key, kvp.Value);
+                outputs.Add(kvp.Key, new Port(kvp.Value));
             }
         }
 
@@ -78,6 +82,29 @@ namespace LogicNetwork
             }
         }
 
+        // Get port group
+        protected bool?[] getPortGroup(Dictionary<string, Port> ports) {
+            bool?[] values = new bool?[ports.Count];
+            int i = 0;
+            foreach (KeyValuePair<string, Port> kvp in ports) {
+                values[i] = kvp.Value.Value;
+                i++;
+            }
+            return values;
+        }
+
+        // Get port group
+        protected void setPortGroup(bool?[] portArray, Dictionary<string, Port> ports) {
+            int i = 0;
+            foreach (KeyValuePair<string, Port> kvp in ports) {
+                if (i >= portArray.Length) {
+                    break;
+                }
+                kvp.Value.Value = portArray[i];
+                i++;
+            }
+        }
+
         // These functions are used when defining a gate prototype:
 
         // Add a new input port, set default value
@@ -93,7 +120,7 @@ namespace LogicNetwork
         // Add a new port to given port group, set default value
         private void addPort(string portName, Dictionary<string, Port> ports) {
             if (!ports.ContainsKey(portName)) {
-                ports.Add(portName, new Port(null));
+                ports.Add(portName, new Port((bool?)null));
             } else {
                 // error, duplicate definition of a port
             }
@@ -114,9 +141,11 @@ namespace LogicNetwork
 
         protected SimpleGate(SimpleGate other) : base(other) {
             initialize();
-            foreach (KeyValuePair<string, string> kvp in other.transitionTable) {
-                transitionTable.Add(kvp.Key, kvp.Value);
-            }
+            //foreach (KeyValuePair<string, string> kvp in other.transitionTable) {
+            //    transitionTable.Add(kvp.Key, kvp.Value);
+            //}
+            // transition table could be shared (I hope)
+            transitionTable = other.transitionTable;
         }
 
         private void initialize() {
@@ -130,27 +159,12 @@ namespace LogicNetwork
 
         public override bool tick() {
             // assign input values from input dictionary
-            bool?[] inputValues = new bool?[inputs.Count];
-            {
-                int i = 0;
-                foreach (KeyValuePair<string, Port> kvp in inputs) {
-                    inputValues[i] = kvp.Value.Value;
-                    i++;
-                }
-            }
+            bool?[] inputValues = getPortGroup(inputs);
+            // compute new values
             bool?[] newOutputValues = compute(inputValues);
             bool changed = !outputs.Equals(newOutputValues);
             // assign new output values to output dictionary
-            {
-                int i = 0;
-                foreach (KeyValuePair<string, Port> kvp in outputs) {
-                    if (i >= newOutputValues.Length) {
-                        break;
-                    }
-                    kvp.Value.Value = newOutputValues[i];
-                    i++;
-                }
-            }
+            setPortGroup(newOutputValues, outputs);
             return changed;
         }
 
@@ -204,12 +218,19 @@ namespace LogicNetwork
 
         protected AbstractCompositeGate(AbstractCompositeGate other) : base(other) {
             initialize();
-            foreach (KeyValuePair<string, string> kvp in other.connections) {
-                connections.Add(kvp.Key, kvp.Value);
+            // inner gates must be cloned
+            foreach (KeyValuePair<string, Gate> kvp in other.gates) {
+                gates.Add(kvp.Key, kvp.Value.clone());
             }
+            //foreach (KeyValuePair<string, string> kvp in other.connections) {
+            //    connections.Add(kvp.Key, kvp.Value);
+            //}
+            // connections could be shared (I hope)
+            connections = other.connections;
         }
 
         private void initialize() {
+            gates = new Dictionary<string, Gate>();
             connections = new Dictionary<string, string>();
         }
 
@@ -325,12 +346,19 @@ namespace LogicNetwork
         // inputValues: <space separated input values>
         // return: <ticks> <space separated output values>
         public string evaluate(string inputValues) {
-            // TODO: set inputs according to inputValues
-            for (int ticks = 0; ticks < MAX_TICKS; ticks++) {
+            // set inputs according to inputValues
+            bool?[] inputsArray = TristateBool.arrayFromString(inputValues);
+            setPortGroup(inputsArray, inputs);
+            // cycle until bail-out
+            int ticks = 0;
+            for (; ticks < MAX_TICKS; ticks++) {
                 if (tick()) break;
             }
-            // TODO: return ("{0} {1}", ticks, outputs)
-            return null;
+            // return ("{0} {1}", ticks, outputs)
+            StringBuilder sb = new StringBuilder();
+            sb.AppendFormat("{0} ", ticks);
+            sb.Append(TristateBool.arrayToString(getPortGroup(outputs)));
+            return sb.ToString();
         }
     }
 
@@ -466,6 +494,11 @@ namespace LogicNetwork
                 
                 // create an instance of the network
                 Network network = gateFactory.Network;
+
+                if (network == null) {
+                    Console.WriteLine("Error: Syntax error. No network specified.");
+                    return;
+                }
                 
                 // main evaluating loop
                 string line = "";
@@ -475,8 +508,9 @@ namespace LogicNetwork
                     }
                     Console.WriteLine(network.evaluate(line));
                 }
-            } else { 
+            } else {
                 // error: no file specified
+                Console.WriteLine("Usage: LogicNetwork.exe definition_file.txt");
             }
         }
     }
