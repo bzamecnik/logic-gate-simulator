@@ -105,6 +105,22 @@ namespace LogicNetwork
             }
         }
 
+        public string[] getInputPortNames() {
+            return getPortNames(inputs);
+        }
+
+        public string[] getOutputPortNames() {
+            return getPortNames(outputs);
+        }
+
+        private string[] getPortNames(Dictionary<string, Port> ports) {
+            List<string> names = new List<string>();
+            foreach (string key in ports.Keys) {
+                names.Add(key);
+            }
+            return names.ToArray();
+        }
+
         // These functions are used when defining a gate prototype:
 
         // Add a new input port, set default value
@@ -236,9 +252,45 @@ namespace LogicNetwork
 
         public override bool tick() {
             // TODO:
-            // - transmit values to inner gates' inputs from ports which point to them
-            // - for all inner gates: tick()
-            // - transmit values from inner gates' outputs to ports where they point to
+            // transmit values to inner gates' inputs from ports which point to them
+            foreach (KeyValuePair<string, Gate> kvp in gates) {
+                string destGateName = kvp.Key;
+                // get names of all input ports of the gate -> dest
+                foreach (string destPortName in kvp.Value.getInputPortNames()) {
+                    string dest = destGateName + '.' + destPortName;
+                    // find which ports point to them (one at time) -> src
+                    string src = connections[dest];
+                    transmit(src, dest);
+                }
+            }
+
+            // for all inner gates: tick()
+            foreach (KeyValuePair<string, Gate> kvp in gates) {
+                kvp.Value.tick();
+            }
+            
+            // transmit values from inner gates' outputs to ports where they point to
+            foreach (KeyValuePair<string, Gate> gateKVP in gates) {
+                string srcGateName = gateKVP.Key;
+                // get names of all output ports of the gate -> src
+                foreach (string srcPortName in gateKVP.Value.getOutputPortNames()) {
+                    // find to which ports this points (multiple) -> dest
+                    string src = srcGateName + '.' + srcPortName;
+                    // TODO: This is an O(n) search and might be too slow!
+                    // Solution: Make a new reverseConnections dictionary:
+                    //   Dictionary<string, List<string>> reverseConnections
+                    // and then:
+                    // List<string> dests = reverseConnections[src];
+                    // foreach (string dest in dests) {
+                    //     transmit(src, dest);
+                    // }
+                    foreach (KeyValuePair<string, string> connKVP in connections) {
+                        if (connKVP.Value.Equals(src)) {
+                            transmit(src, connKVP.Key);
+                        }
+                    }
+                }
+            }
             return false;
         }
 
@@ -273,7 +325,7 @@ namespace LogicNetwork
             if (gates.ContainsKey(gateName)) {
                 return gates[gateName];
             } else {
-                return null;
+                return null; // no such an inner gate
             }
         }
 
@@ -296,16 +348,18 @@ namespace LogicNetwork
         protected Port getPortByAddress(string address) {
             string[] parts = address.Split('.');
             if (parts.Length == 1) {
+                // a port from this gate
                 return getPort(parts[0]);
             } else if (parts.Length == 2) {
                 Gate gate = getGate(parts[0]);
                 if (gate != null) {
+                    // a port from an inner gate
                     return gate.getPort(parts[1]);
                 } else {
-                    return null;
+                    return null; // no such an inner gate
                 }
             }
-            return null;
+            return null; // invalid address format
         }
     }
 
