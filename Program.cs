@@ -167,6 +167,28 @@ namespace LogicNetwork
             }
         }
 
+        protected void parseInputPorts(string definition) {
+            parsePorts(definition, inputs);
+        }
+
+        protected void parseOutputPorts(string definition) {
+            parsePorts(definition, outputs);
+        }
+
+        private void parsePorts(string definition, Dictionary<string, Port> ports) {
+            string[] parts = definition.Trim().Split(' ');
+            foreach (string part in parts) {
+                if (isValidIdentifier(part)) {
+                    addPort(part, inputs);
+                }
+            }
+        }
+
+        protected static bool isValidIdentifier(string identifier) {
+            // TODO
+            return true;
+        }
+
         public override string ToString() {
             StringBuilder sb = new StringBuilder();
             sb.Append("Gate {\n");
@@ -246,6 +268,26 @@ namespace LogicNetwork
             testGate.setPortGroup(TristateBool.arrayFromString("0 1 1"), testGate.inputs);
 
             return testGate;
+        }
+
+        // Parse one line of transition function.
+        // If correct add it to transition table.
+        protected void parseTransitionFunction(string definition) {
+            int inputsCount = inputs.Count;
+            int outputsCount = outputs.Count;
+            string[] parts = definition.Trim().Split(' ');
+            if (parts.Length == (inputsCount + outputsCount)) {
+                string inputDef = String.Join(" ", parts, 0, inputsCount);
+                string outputDef = String.Join(" ", parts, inputsCount, outputsCount);
+                if (TristateBool.isValidArray(inputDef) &&
+                    TristateBool.isValidArray(outputDef)) {
+                    transitionTable.Add(inputDef, outputDef);
+                } else {
+                    // error: bad syntax
+                }
+            } else {
+                // error: bad syntax
+            }
         }
 
         // Compute new output values based on input values
@@ -372,6 +414,23 @@ namespace LogicNetwork
         protected static AbstractCompositeGate parseAbstractCompositeGate(StreamReader inputStream) {
             // TODO
             return null;
+        }
+
+        // Parse a line of inner gate definition.
+        // <gate instance name> <gate type>
+        protected void parseInnerGate(string definition) {
+            string[] parts = definition.Trim().Split(' ');
+            if ((parts.Length == 2) && (isValidIdentifier(parts[0]))) {
+                GatePrototypeFactory factory = GatePrototypeFactory.getInstance();
+                Gate innerGate = factory.createGate(parts[1]);
+                if (innerGate != null) {
+                    addGate(parts[0], innerGate);
+                } else {
+                    // error: gate of such a type was not defined yet
+                }
+            } else {
+                // error: bad syntax
+            }
         }
 
         // Transmit a value from source [gate.]port to destination [gate.]port
@@ -581,7 +640,10 @@ namespace LogicNetwork
                 return true;
             } else if (str.Equals("0")) {
                 return false;
+            } else if (str.Equals("?")) {
+                return null;
             } else {
+                // error
                 return null;
             }
         }
@@ -601,6 +663,10 @@ namespace LogicNetwork
                 values.Add(TristateBool.fromString(part));
             }
             return values.ToArray();
+        }
+
+        public static bool isValidArray(string str) {
+            return str.Equals(arrayToString(arrayFromString(str)));
         }
     }
 
