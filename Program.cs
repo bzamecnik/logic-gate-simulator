@@ -4,20 +4,35 @@ using System.Text;
 using System.IO;
 
 // Logic gate network simulator
+//
+// Author: Bohumir Zamecnik <bohumir@zamecnik.org>
+// Date: 2009/12
 namespace LogicNetwork
 {
 
     // TODO:
-    // - AbstractCompositeGate.tick()
+    // * AbstractCompositeGate.tick()
+    //   * return information about stabilizing
     // * Network.evaluate()
     // * cloning
-    // - parsing from definition file
-    // - errors -> exceptions or another handling
+    // - write testing code
+    // - write parsing from definition file
+    //   - how to find out the line number where syntax error occured?
+    // - errors -> exceptions or other handling
+    // - write more comments
 
+
+    // Abstract base for all logic gates.
+    // Part of Composite design pattern.
     abstract class Gate {
 
         // Port
+        // Represents a port with a three-state logic value.
+        // A wrapper class is only to simplify getting and setting the value.
+        // It is an inner class, because there's no need to use it
+        // from outside of Gate and its descendants.
         public class Port {
+            // Port value
             bool? value; // three-state logic (true, false, null) = (1, 0, ?)
             
             public bool? Value {
@@ -35,6 +50,10 @@ namespace LogicNetwork
 
             public Port(bool? value) {
                 this.value = value;
+            }
+
+            public override string ToString() {
+                return TristateBool.toString(value);
             }
         }
 
@@ -82,7 +101,7 @@ namespace LogicNetwork
             }
         }
 
-        // Get port group
+        // Get values of a whole group of ports
         protected bool?[] getPortGroup(Dictionary<string, Port> ports) {
             bool?[] values = new bool?[ports.Count];
             int i = 0;
@@ -93,7 +112,7 @@ namespace LogicNetwork
             return values;
         }
 
-        // Get port group
+        // Set values of a whole group of ports
         protected void setPortGroup(bool?[] portArray, Dictionary<string, Port> ports) {
             int i = 0;
             foreach (KeyValuePair<string, Port> kvp in ports) {
@@ -105,16 +124,21 @@ namespace LogicNetwork
             }
         }
 
+        // Get names of input ports
         public string[] getInputPortNames() {
             return getPortNames(inputs);
         }
 
+        // Get names of output ports
         public string[] getOutputPortNames() {
             return getPortNames(outputs);
         }
 
+        // Get names of ports from selected group
         private string[] getPortNames(Dictionary<string, Port> ports) {
             List<string> names = new List<string>();
+            // NOTE: there might a problem that ports.Keys
+            // does not guarantee the order of elements
             foreach (string key in ports.Keys) {
                 names.Add(key);
             }
@@ -139,7 +163,24 @@ namespace LogicNetwork
                 ports.Add(portName, new Port((bool?)null));
             } else {
                 // error, duplicate definition of a port
+                //throw new GateInconsistenceException();
             }
+        }
+
+        public override string ToString() {
+            StringBuilder sb = new StringBuilder();
+            sb.Append("Gate {\n");
+            sb.Append("inputs: [");
+            foreach(KeyValuePair<string, Port> kvp in inputs) {
+                sb.AppendFormat("{0}: {1}, ", kvp.Key, kvp.Value);
+            }
+            sb.AppendFormat("]\n");
+            sb.Append("outputs: [");
+            foreach (KeyValuePair<string, Port> kvp in outputs) {
+                sb.AppendFormat("{0}: {1}, ", kvp.Key, kvp.Value);
+            }
+            sb.AppendFormat("]\n}}\n");
+            return sb.ToString();
         }
 
     }
@@ -156,10 +197,13 @@ namespace LogicNetwork
         }
 
         protected SimpleGate(SimpleGate other) : base(other) {
-            initialize();
+            //initialize(); // not needed
+            
+            // cloned transition table
             //foreach (KeyValuePair<string, string> kvp in other.transitionTable) {
             //    transitionTable.Add(kvp.Key, kvp.Value);
             //}
+            
             // transition table could be shared (I hope)
             transitionTable = other.transitionTable;
         }
@@ -178,16 +222,30 @@ namespace LogicNetwork
             bool?[] inputValues = getPortGroup(inputs);
             // compute new values
             bool?[] newOutputValues = compute(inputValues);
-            bool changed = !outputs.Equals(newOutputValues);
+            bool stabilized = outputs.Equals(newOutputValues);
             // assign new output values to output dictionary
             setPortGroup(newOutputValues, outputs);
-            return changed;
+            return stabilized;
         }
 
         // Create a simple gate prototype from string representation
         public static SimpleGate parseSimpleGate(StreamReader inputStream) {
             // TODO
-            return null;
+            SimpleGate testGate = new SimpleGate();
+            testGate.addInputPort("i1");
+            testGate.addInputPort("i2");
+            testGate.addInputPort("i3");
+
+            testGate.addOutputPort("o1");
+            testGate.addOutputPort("o2");
+            testGate.addOutputPort("o2");
+
+            testGate.transitionTable.Add("1 0 ?", "0 1");
+            testGate.transitionTable.Add("0 1 1", "1 1");
+
+            testGate.setPortGroup(TristateBool.arrayFromString("0 1 1"), testGate.inputs);
+
+            return testGate;
         }
 
         // Compute new output values based on input values
@@ -212,20 +270,29 @@ namespace LogicNetwork
             }
             return output;
         }
-        //string compute(string inputValues) {
-        //    // TODO
-        //    return null;
-        //}
+
+        public override string ToString() {
+            StringBuilder sb = new StringBuilder();
+            sb.Append("SimpleGate {\n");
+            sb.Append(base.ToString());
+            sb.Append("transition table: [");
+            foreach (KeyValuePair<string, string> kvp in transitionTable) {
+                sb.AppendFormat("{0}: {1}, ", kvp.Key, kvp.Value);
+            }
+            sb.AppendFormat("]\n}}\n");
+            return sb.ToString();
+        }
     }
 
     abstract class AbstractCompositeGate : Gate {
         // Inner gates
         // NOTE: this must be CLONED
         Dictionary<string, Gate> gates; // name, Gate
+
         // Connections between inner gates' (or this gate's) ports.
         // In fact, data flow in direction: src->dest.
-        // They are stored in reverse order in dictionary, because we will
-        // usually query by destination.
+        // They are stored in both orders in two dictionary,
+        // because we will query by both directions.
         Dictionary<string, string> connections; // dest, src
         Dictionary<string, List<string>> reverseConnections; // src, list of dests
 
@@ -234,14 +301,11 @@ namespace LogicNetwork
         }
 
         protected AbstractCompositeGate(AbstractCompositeGate other) : base(other) {
-            initialize();
+            initialize(); // TODO: it is only needed to initialize gates
             // inner gates must be cloned
             foreach (KeyValuePair<string, Gate> kvp in other.gates) {
                 gates.Add(kvp.Key, kvp.Value.clone());
             }
-            //foreach (KeyValuePair<string, string> kvp in other.connections) {
-            //    connections.Add(kvp.Key, kvp.Value);
-            //}
             // connections could be shared (I hope)
             connections = other.connections;
             reverseConnections = other.reverseConnections;
@@ -254,7 +318,8 @@ namespace LogicNetwork
         }
 
         public override bool tick() {
-            // TODO:
+            bool?[] oldOutputValues = getPortGroup(outputs);
+
             // transmit values to inner gates' inputs from ports which point to them
             foreach (KeyValuePair<string, Gate> kvp in gates) {
                 string destGateName = kvp.Key;
@@ -277,7 +342,7 @@ namespace LogicNetwork
                 string srcGateName = gateKVP.Key;
                 // get names of all output ports of the gate -> src
                 foreach (string srcPortName in gateKVP.Value.getOutputPortNames()) {
-                    // find to which ports this points (multiple) -> dest
+                    // find to which ports this one  points (multiple) -> dest
                     string src = srcGateName + '.' + srcPortName;
                     if (reverseConnections.ContainsKey(src)){
                         List<string> dests = reverseConnections[src];
@@ -295,13 +360,16 @@ namespace LogicNetwork
                     //}
                 }
             }
-            return false;
+            // return true, if output values have not changed during tick()
+            // ie. the gate and its subgates have stabilized
+            return oldOutputValues.Equals(getPortGroup(outputs));
         }
 
         // Create an abstract composite gate prototype from string representation
         // This is a common code for its descentants not to be called directly.
         // Specific details should be separated into virutal methods.
-        protected AbstractCompositeGate parseAbstractCompositeGate(StreamReader inputStream) {
+        // Template Method design pattern.
+        protected static AbstractCompositeGate parseAbstractCompositeGate(StreamReader inputStream) {
             // TODO
             return null;
         }
@@ -374,8 +442,9 @@ namespace LogicNetwork
     }
 
     class CompositeGate : AbstractCompositeGate {
-        protected CompositeGate(CompositeGate other) : base(other) {
-        }
+        protected CompositeGate(AbstractCompositeGate other) : base(other) { }
+        
+        protected CompositeGate(CompositeGate other) : base(other) { }
 
         public override Gate clone() {
             return new CompositeGate(this);
@@ -384,14 +453,16 @@ namespace LogicNetwork
         // Create a composite gate prototype from string representation
         // NOTE: A common parsing code is in parseAbstractCompositeGate().
         public static CompositeGate parseCompositeGate(StreamReader inputStream) {
-            // TODO
-            return null;
+            return new CompositeGate(AbstractCompositeGate.parseAbstractCompositeGate(inputStream));
         }
+
+        // TODO: hooks for parseAbstractCompositeGate with class specific details
     }
 
     class Network : AbstractCompositeGate {
-        protected Network(Network other) : base(other) {
-        }
+        protected Network(AbstractCompositeGate other) : base(other) { }
+
+        protected Network(Network other) : base(other) { }
 
         public override Gate clone() {
             return new Network(this);
@@ -399,11 +470,13 @@ namespace LogicNetwork
 
         // Create a network prototype from string representation
         public static Network parseNetwork(StreamReader inputStream) {
-            // TODO
-            return null;
+            return new Network(AbstractCompositeGate.parseAbstractCompositeGate(inputStream));
         }
 
+        // TODO: hooks for parseAbstractCompositeGate with class specific details
+
         // Maximum number of ticks before we decide the network can't stabilize.
+        // This might be useful when the network has periodic or chaotic behavior.
         const int MAX_TICKS = 1000000;
 
         // Let the network compute
@@ -427,8 +500,9 @@ namespace LogicNetwork
     }
 
     class GatePrototypeFactory {
-        // Singleton
+        // Singleton design pattern
 
+        // Singleton instance
         private static GatePrototypeFactory instance = null;
 
         private GatePrototypeFactory() {
@@ -436,6 +510,7 @@ namespace LogicNetwork
             network = null;
         }
 
+        // Get singleton instance
         public static GatePrototypeFactory getInstance() {
             if (instance == null) {
                 instance = new GatePrototypeFactory();
@@ -446,7 +521,7 @@ namespace LogicNetwork
         // Defined gate prototypes
         Dictionary<string, Gate> gates; // gateName, gate
 
-        // The network (there's only one)
+        // The logic gate network (there's only one)
         Network network;
 
         // Parse a file with definition of all the gates and a network
@@ -463,7 +538,7 @@ namespace LogicNetwork
             return null; // error: no gate of such a name
         }
 
-        // The network as a property
+        // The network as a read-only property
         public Network Network {
             get { return network; }
         }
@@ -504,7 +579,7 @@ namespace LogicNetwork
         public static bool? fromString(string str) {
             if (str.Equals("1")) {
                 return true;
-            } else if (str.Equals("1")) {
+            } else if (str.Equals("0")) {
                 return false;
             } else {
                 return null;
@@ -514,13 +589,13 @@ namespace LogicNetwork
         public static string arrayToString(bool?[] array) {
             StringBuilder sb = new StringBuilder();
             foreach (bool? value in array) {
-                sb.Append(TristateBool.toString(value));
+                sb.Append(TristateBool.toString(value) + ' ');
             }
             return sb.ToString().TrimEnd();
         }
 
-        public static bool?[] arrayFromString(string array) {
-            string[] parts = array.Split(' ');
+        public static bool?[] arrayFromString(string str) {
+            string[] parts = str.Trim().Split(' ');
             List<bool?> values = new List<bool?>();
             foreach (string part in parts) {
                 values.Add(TristateBool.fromString(part));
@@ -531,9 +606,14 @@ namespace LogicNetwork
 
     class SyntaxErrorException : ApplicationException { }
 
+    class GateInconsistenceException : ApplicationException { }
+
     class Program
     {
         static void Main(string[] args) {
+            Test.run();
+            return;
+
             if (args.Length == 1) {
                 GatePrototypeFactory gateFactory = GatePrototypeFactory.getInstance();
 
