@@ -251,23 +251,40 @@ namespace LogicNetwork
         }
 
         // Create a simple gate prototype from string representation
+        // Format:
+        //   inputs <...> - once
+        //   outputs <...> - once
+        //   <transitions> - zero or more times
+        //   end
         public static SimpleGate parseSimpleGate(StreamReader inputStream) {
-            // TODO
-            SimpleGate testGate = new SimpleGate();
-            testGate.addInputPort("i1");
-            testGate.addInputPort("i2");
-            testGate.addInputPort("i3");
+            SimpleGate gate = new SimpleGate();
+            try {
+                string line = inputStream.ReadLine();
+                if (line.StartsWith("inputs")) {
+                    gate.parseInputPorts(line.Substring("inputs".Length));
+                } else {
+                    // error: Missing keyword
+                }
 
-            testGate.addOutputPort("o1");
-            testGate.addOutputPort("o2");
-            testGate.addOutputPort("o2");
+                line = inputStream.ReadLine();
+                if (line.StartsWith("outputs")) {
+                    gate.parseOutputPorts(line.Substring("outputs".Length));
+                } else {
+                    // error: Missing keyword
+                }
 
-            testGate.transitionTable.Add("1 0 ?", "0 1");
-            testGate.transitionTable.Add("0 1 1", "1 1");
-
-            testGate.setPortGroup(TristateBool.arrayFromString("0 1 1"), testGate.inputs);
-
-            return testGate;
+                while (((line = inputStream.ReadLine()) != null)) {
+                    if (!line.StartsWith("end")) {
+                        gate.parseTransitionFunction(line);
+                    } else {
+                        break;
+                    }
+                }
+            }
+            catch (IOException) {
+                // error: syntax error
+            }
+            return gate;
         }
 
         // Parse one line of transition function.
@@ -409,13 +426,14 @@ namespace LogicNetwork
 
         // Create an abstract composite gate prototype from string representation
         // This is a common code for its descentants not to be called directly.
-        // Specific details should be separated into virutal methods.
+        // Specific rules are separated into virutal methods.
         // Template Method design pattern.
         // Format:
         //   inputs <...> - once
         //   outputs <...> - once
         //   gate <...> - at least once
         //   <connections> - zero or more times
+        //   end
         protected void parseAbstractCompositeGate(StreamReader inputStream) {
             try {
                 string line = inputStream.ReadLine();
@@ -682,23 +700,48 @@ namespace LogicNetwork
         // The logic gate network (there's only one)
         Network network;
 
-        // Parse a file with definition of all the gates and a network
-        // Can throw SyntaxErrorException
-        public void parseGates(StreamReader inputStream) {
-            // TODO
-        }
-        
-        // Create a clone of a defined gate prototype
-        public Gate createGate(string gateName) {
-            if (gates.ContainsKey(gateName)) {
-                return gates[gateName].clone();
-            }
-            return null; // error: no gate of such a name
-        }
 
         // The network as a read-only property
         public Network Network {
             get { return network; }
+        }
+
+        // Parse a file with definition of all the gates and a network
+        // Can throw SyntaxErrorException
+        public void parseGates(StreamReader inputStream) {
+            string line = null;
+            while ((line = inputStream.ReadLine()) != null) {
+                line = line.Trim();
+                // ingore empty lines (containing possibly whitespace)
+                // or a comments (starting with ';')
+                if ((line.Length == 0)
+                    || (line[0] == ';')) {
+                    continue;
+                }
+
+                string[] parts = line.Split(' ');
+                Gate gate = null;
+                if (parts[0].Equals("gate")) {
+                    gate = SimpleGate.parseSimpleGate(inputStream);
+                    if (parts.Length == 2) {
+                        defineGate(parts[1], gate);
+                    } else {
+                        // error: syntax error
+                    }
+                } else if (parts[0].Equals("composite")) {
+                    gate = CompositeGate.parseCompositeGate(inputStream);
+                    if (parts.Length == 2) {
+                        defineGate(parts[1], gate);
+                    } else {
+                        // error: syntax error
+                    }
+                } else if (parts[0].Equals("network")) {
+                    gate = Network.parseNetwork(inputStream);
+                    defineGate("", gate);
+                } else {
+                    // error: syntax error
+                }
+            }
         }
 
         // Register a new gate prototype
@@ -707,7 +750,7 @@ namespace LogicNetwork
                 // TODO: error: gate is null
             } else if (gate is Network) {
                 if (network == null) {
-                    network = (Network) gate;
+                    network = (Network)gate;
                 } else {
                     // TODO: error: more than one network
                 }
@@ -718,6 +761,14 @@ namespace LogicNetwork
                     // TODO: error: duplicate gate definition
                 }
             }
+        }
+
+        // Create a clone of a defined gate prototype
+        public Gate createGate(string gateName) {
+            if (gates.ContainsKey(gateName)) {
+                return gates[gateName].clone();
+            }
+            return null; // error: no gate of such a name
         }
 
     }
