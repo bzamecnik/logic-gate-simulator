@@ -227,6 +227,7 @@ namespace LogicNetwork
         // They are stored in reverse order in dictionary, because we will
         // usually query by destination.
         Dictionary<string, string> connections; // dest, src
+        Dictionary<string, List<string>> reverseConnections; // src, list of dests
 
         protected AbstractCompositeGate() {
             initialize();
@@ -243,11 +244,13 @@ namespace LogicNetwork
             //}
             // connections could be shared (I hope)
             connections = other.connections;
+            reverseConnections = other.reverseConnections;
         }
 
         private void initialize() {
             gates = new Dictionary<string, Gate>();
             connections = new Dictionary<string, string>();
+            reverseConnections = new Dictionary<string, List<string>>();
         }
 
         public override bool tick() {
@@ -276,19 +279,20 @@ namespace LogicNetwork
                 foreach (string srcPortName in gateKVP.Value.getOutputPortNames()) {
                     // find to which ports this points (multiple) -> dest
                     string src = srcGateName + '.' + srcPortName;
-                    // TODO: This is an O(n) search and might be too slow!
-                    // Solution: Make a new reverseConnections dictionary:
-                    //   Dictionary<string, List<string>> reverseConnections
-                    // and then:
-                    // List<string> dests = reverseConnections[src];
-                    // foreach (string dest in dests) {
-                    //     transmit(src, dest);
-                    // }
-                    foreach (KeyValuePair<string, string> connKVP in connections) {
-                        if (connKVP.Value.Equals(src)) {
-                            transmit(src, connKVP.Key);
+                    if (reverseConnections.ContainsKey(src)){
+                        List<string> dests = reverseConnections[src];
+                        foreach (string dest in dests) {
+                            transmit(src, dest);
                         }
                     }
+
+                    // Without reverseConnections
+                    // This is an O(n) search and might be too slow!
+                    //foreach (KeyValuePair<string, string> connKVP in connections) {
+                    //    if (connKVP.Value.Equals(src)) {
+                    //        transmit(src, connKVP.Key);
+                    //    }
+                    //}
                 }
             }
             return false;
@@ -337,7 +341,13 @@ namespace LogicNetwork
             // Check if the connection is not duplicate.
             if ((srcPort != null) && (srcPort != null)
                 && !connections.ContainsKey(dest)) {
+                // add a connection
                 connections[dest] = src;
+                // add a reverse connection
+                if (!reverseConnections.ContainsKey(src)) {
+                    reverseConnections.Add(src, new List<string>());
+                }
+                reverseConnections[src].Add(dest);
             } else {
                 // error
             }
