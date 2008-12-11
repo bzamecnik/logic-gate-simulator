@@ -35,6 +35,7 @@ namespace LogicNetwork
         }
 
         // NOTE: Input and output ports share the space of their names
+        // NOTE: thehe two must be CLONED
         protected Dictionary<string, Port> inputs; // input ports
         protected Dictionary<string, Port> outputs; // output ports
 
@@ -43,7 +44,7 @@ namespace LogicNetwork
         }
 
         // Copy constructor
-        protected Gate(Gate other) : this() {
+        protected Gate(Gate other) {
             initialize();
             foreach (KeyValuePair<string, Port> kvp in other.inputs) {
                 inputs.Add(kvp.Key, kvp.Value);
@@ -58,13 +59,13 @@ namespace LogicNetwork
             outputs = new Dictionary<string, Port>();
         }
 
+        // Cloning support for the Prototype pattern
+        public abstract Gate clone();
+
         // Make one computing step and change outputs somehow.
         // Return true if the gate and possibly all inner gates
         // have stabilized, ie. output values haven't changed in the tick.
         public abstract bool tick();
-
-        // Cloning support for the Prototype pattern
-        public abstract Gate clone();
 
         // Get a port
         public Port getPort(string portName) {
@@ -111,12 +112,20 @@ namespace LogicNetwork
             initialize();
         }
 
-        protected SimpleGate(Gate other) : base(other) {
+        protected SimpleGate(SimpleGate other) : base(other) {
             initialize();
+            foreach (KeyValuePair<string, string> kvp in other.transitionTable) {
+                transitionTable.Add(kvp.Key, kvp.Value);
+            }
         }
 
         private void initialize() {
             transitionTable = new Dictionary<string, string>();
+        }
+
+
+        public override Gate clone() {
+            return new SimpleGate(this);
         }
 
         public override bool tick() {
@@ -143,15 +152,6 @@ namespace LogicNetwork
                 }
             }
             return changed;
-        }
-
-        public override Gate clone() {
-            // TODO
-            SimpleGate newGate = new SimpleGate(base);
-            foreach (KeyValuePair<string, string> kvp in transitionTable) {
-                newGate.transitionTable.Add(kvp.Key, kvp.Value);
-            }
-            return newGate;
         }
 
         // Create a simple gate prototype from string representation
@@ -190,6 +190,7 @@ namespace LogicNetwork
 
     abstract class AbstractCompositeGate : Gate {
         // Inner gates
+        // NOTE: this must be CLONED
         Dictionary<string, Gate> gates; // name, Gate
         // Connections between inner gates' (or this gate's) ports.
         // In fact, data flow in direction: src->dest.
@@ -201,7 +202,7 @@ namespace LogicNetwork
             initialize();
         }
 
-        protected AbstractCompositeGate(AbstractCompositeGate other) {
+        protected AbstractCompositeGate(AbstractCompositeGate other) : base(other) {
             initialize();
             foreach (KeyValuePair<string, string> kvp in other.connections) {
                 connections.Add(kvp.Key, kvp.Value);
@@ -288,11 +289,11 @@ namespace LogicNetwork
     }
 
     class CompositeGate : AbstractCompositeGate {
-        protected CompositeGate(AbstractCompositeGate g) : base(g) {
+        protected CompositeGate(CompositeGate other) : base(other) {
         }
 
         public override Gate clone() {
-            return new CompositeGate(base);
+            return new CompositeGate(this);
         }
 
         // Create a composite gate prototype from string representation
@@ -304,12 +305,11 @@ namespace LogicNetwork
     }
 
     class Network : AbstractCompositeGate {
-        protected Network(AbstractCompositeGate g)
-            : base(g) {
+        protected Network(Network other) : base(other) {
         }
 
         public override Gate clone() {
-            return new Network(base);
+            return new Network(this);
         }
 
         // Create a network prototype from string representation
@@ -441,7 +441,7 @@ namespace LogicNetwork
 
     class Program
     {
-        static void Main(string[] args)     {
+        static void Main(string[] args) {
             if (args.Length == 1) {
                 GatePrototypeFactory gateFactory = GatePrototypeFactory.getInstance();
 
