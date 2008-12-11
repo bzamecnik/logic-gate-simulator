@@ -179,7 +179,7 @@ namespace LogicNetwork
             string[] parts = definition.Trim().Split(' ');
             foreach (string part in parts) {
                 if (isValidIdentifier(part)) {
-                    addPort(part, inputs);
+                    addPort(part, ports);
                 }
             }
         }
@@ -242,9 +242,16 @@ namespace LogicNetwork
         public override bool tick() {
             // assign input values from input dictionary
             bool?[] inputValues = getPortGroup(inputs);
+            bool?[] oldOutputValues = getPortGroup(outputs);
             // compute new values
             bool?[] newOutputValues = compute(inputValues);
-            bool stabilized = outputs.Equals(newOutputValues);
+            bool stabilized = true;
+            for (int i = 0; i < oldOutputValues.Length; i++) {
+                if (oldOutputValues[i] != newOutputValues[i]) {
+                    stabilized = false;
+                    break;
+                }
+            }
             // assign new output values to output dictionary
             setPortGroup(newOutputValues, outputs);
             return stabilized;
@@ -377,6 +384,7 @@ namespace LogicNetwork
         }
 
         public override bool tick() {
+            bool stabilized = true;
             bool?[] oldOutputValues = getPortGroup(outputs);
 
             // transmit values to inner gates' inputs from ports which point to them
@@ -386,14 +394,16 @@ namespace LogicNetwork
                 foreach (string destPortName in kvp.Value.getInputPortNames()) {
                     string dest = destGateName + '.' + destPortName;
                     // find which ports point to them (one at time) -> src
-                    string src = connections[dest];
-                    transmit(src, dest);
+                    if (connections.ContainsKey(dest)) {
+                        string src = connections[dest];
+                        transmit(src, dest);
+                    }
                 }
             }
 
             // for all inner gates: tick()
             foreach (KeyValuePair<string, Gate> kvp in gates) {
-                kvp.Value.tick();
+                stabilized &= kvp.Value.tick();
             }
             
             // transmit values from inner gates' outputs to ports where they point to
@@ -421,7 +431,17 @@ namespace LogicNetwork
             }
             // return true, if output values have not changed during tick()
             // ie. the gate and its subgates have stabilized
-            return oldOutputValues.Equals(getPortGroup(outputs));
+            if (!stabilized) {
+                return false;
+            } else {
+                bool?[] newOutputValues = getPortGroup(outputs);
+                for (int i = 0; i < oldOutputValues.Length; i++) {
+                    if (oldOutputValues[i] != newOutputValues[i]) {
+                        return false;
+                    }
+                }
+            }
+            return true;
         }
 
         // Create an abstract composite gate prototype from string representation
@@ -458,13 +478,13 @@ namespace LogicNetwork
                     }
                 }
 
-                while (((line = inputStream.ReadLine()) != null)) {
+                do {
                     if (!line.StartsWith("end")) {
                         parseConnection(line);
                     } else {
                         break;
                     }
-                }
+                } while (((line = inputStream.ReadLine()) != null));
             } catch (IOException) {
                 // error: syntax error
             }
@@ -507,7 +527,7 @@ namespace LogicNetwork
             if (parts.Length == 2) {
                 // TODO: check if it is ok to connect the two ports
                 // else -> Binding rule broken
-                connect(parts[0], parts[1]);
+                connect(parts[1], parts[0]);
             } else {
                 // error: syntax error
             }
@@ -547,14 +567,14 @@ namespace LogicNetwork
         protected void connect(string src, string dest) {
             Port srcPort = getPortByAddress(src);
             Port destPort = getPortByAddress(dest);
-            if ((srcPort == null) || (srcPort != null)) {
+            if ((srcPort == null) || (srcPort == null)) {
                 // src or dest is not a valid port
                 // error: syntax error
             } else if (connections.ContainsKey(dest)) {
                 // error: duplicate connection
             } else {
                 // add a connection
-                connections[dest] = src;
+                connections.Add(dest, src);
                 // add a reverse connection
                 if (!reverseConnections.ContainsKey(src)) {
                     reverseConnections.Add(src, new List<string>());
@@ -581,12 +601,35 @@ namespace LogicNetwork
             }
             return null; // invalid address format
         }
+
+        public override string ToString() {
+            StringBuilder sb = new StringBuilder();
+            sb.Append("AbstractCompositeGate {\n");
+            sb.Append("gates: [\n");
+            foreach (KeyValuePair<string, Gate> kvp in gates) {
+                sb.AppendFormat("{0}: {1}", kvp.Key, kvp.Value);
+            }
+            sb.AppendFormat("]\n");
+            sb.Append("connections: [");
+            foreach (KeyValuePair<string, string> kvp in connections) {
+                sb.AppendFormat("{0}->{1}, ", kvp.Key, kvp.Value);
+            }
+            sb.AppendFormat("]\n");
+            sb.Append("reverse connections: [");
+            foreach (KeyValuePair<string, List<string>> kvp in reverseConnections) {
+                sb.AppendFormat("{0}->[", kvp.Key);
+                foreach (string conn in kvp.Value) {
+                    sb.AppendFormat("{0}, ", conn);
+                }
+                sb.AppendFormat("], ");
+            }
+            sb.AppendFormat("]\n}}\n");
+            return sb.ToString();
+        }
     }
 
     class CompositeGate : AbstractCompositeGate {
         protected CompositeGate() { }
-
-        protected CompositeGate(AbstractCompositeGate other) : base(other) { }
         
         protected CompositeGate(CompositeGate other) : base(other) { }
 
@@ -607,12 +650,18 @@ namespace LogicNetwork
         protected override bool isCorrecltyParsed() {
             return true;
         }
+
+        public override string ToString() {
+            StringBuilder sb = new StringBuilder();
+            sb.Append("CompositeGate {\n");
+            sb.Append(base.ToString());
+            sb.AppendFormat("}}\n");
+            return sb.ToString();
+        }
     }
 
     class Network : AbstractCompositeGate {
         protected Network() { }
-
-        protected Network(AbstractCompositeGate other) : base(other) { }
 
         protected Network(Network other) : base(other) { }
 
@@ -637,12 +686,15 @@ namespace LogicNetwork
             // all input ports are connected to at least one port
             string[] inputPortNames = getInputPortNames();
             foreach (string portName in inputPortNames) {
+                if (!reverseConnections.ContainsKey(portName)) {
+                    return false; // not connected
+                }
                 List<string> connectedPorts = reverseConnections[portName];
                 if (connectedPorts == null) {
                     // error: GateInconsistenceException
                 }
                 if (connectedPorts.Count <= 0) {
-                    return false;
+                    return false; // not connected
                 }
             }
             return true;
@@ -671,6 +723,14 @@ namespace LogicNetwork
             StringBuilder sb = new StringBuilder();
             sb.AppendFormat("{0} ", ticks);
             sb.Append(TristateBool.arrayToString(getPortGroup(outputs)));
+            return sb.ToString();
+        }
+
+        public override string ToString() {
+            StringBuilder sb = new StringBuilder();
+            sb.Append("Network {\n");
+            sb.Append(base.ToString());
+            sb.AppendFormat("}}\n");
             return sb.ToString();
         }
     }
@@ -827,8 +887,8 @@ namespace LogicNetwork
     class Program
     {
         static void Main(string[] args) {
-            Test.run();
-            return;
+            //Test.run();
+            //return;
 
             if (args.Length == 1) {
                 GatePrototypeFactory gateFactory = GatePrototypeFactory.getInstance();
@@ -865,8 +925,11 @@ namespace LogicNetwork
                 while ((line = Console.ReadLine()) != null) {
                     if (line.Equals("end")) {
                         break;
+                    } else if (line.Equals("print network")) {
+                        Console.WriteLine(network); //DEBUG
+                    } else {
+                        Console.WriteLine(network.evaluate(line));
                     }
-                    Console.WriteLine(network.evaluate(line));
                 }
             } else {
                 // error: no file specified
