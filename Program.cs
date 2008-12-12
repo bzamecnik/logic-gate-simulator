@@ -16,11 +16,13 @@ namespace LogicNetwork
     // * Network.evaluate()
     // * cloning
     // - write testing code
-    // - write parsing from definition file
+    // * write parsing from definition file
     //   - how to find out the line number where syntax error occured?
     // - errors -> exceptions or other handling
     // - write more comments
-
+    // * define implicit constant gates 0, 1 in the network
+    //   - try to move the code to Network class
+    // - ToString() should speak less
 
     // Abstract base for all logic gates.
     // Part of Composite design pattern.
@@ -184,9 +186,14 @@ namespace LogicNetwork
             }
         }
 
+        // Check identifier validity.
+        // Identifier might be a name of a gate type, gate instance or port.
+        // Return true if valid.
         protected static bool isValidIdentifier(string identifier) {
-            // TODO
-            return true;
+            char[] badCharacters = new char[] {' ', '\t', '\n', '\r', '\f', '.', ';'};
+            return (identifier.IndexOfAny(badCharacters) == -1)
+                && !identifier.Contains("->")
+                && !identifier.StartsWith("end");
         }
 
         public override string ToString() {
@@ -213,6 +220,21 @@ namespace LogicNetwork
         // - value: values of outputs (eg.: 1 0 1)
         // - Dictionary<string, string> might be an overhead
         Dictionary<string, string> transitionTable;
+
+        public static SimpleGate TRUE_CONSTANT_GATE;
+        public static SimpleGate FALSE_CONSTANT_GATE;
+
+        static SimpleGate() {
+            TRUE_CONSTANT_GATE = new SimpleGate();
+            TRUE_CONSTANT_GATE.addOutputPort("o");
+            TRUE_CONSTANT_GATE.getPort("o").Value = true;
+            TRUE_CONSTANT_GATE.parseTransitionFunction("1");
+
+            FALSE_CONSTANT_GATE = new SimpleGate();
+            FALSE_CONSTANT_GATE.addOutputPort("o");
+            FALSE_CONSTANT_GATE.getPort("o").Value = false;
+            FALSE_CONSTANT_GATE.parseTransitionFunction("0");
+        }
 
         protected SimpleGate() {
             initialize();
@@ -533,6 +555,26 @@ namespace LogicNetwork
             }
         }
 
+        // Connect two ports
+        protected void connect(string src, string dest) {
+            Port srcPort = getPortByAddress(src);
+            Port destPort = getPortByAddress(dest);
+            if ((srcPort == null) || (srcPort == null)) {
+                // src or dest is not a valid port
+                // error: syntax error
+            } else if (connections.ContainsKey(dest)) {
+                // error: duplicate connection
+            } else {
+                // add a connection
+                connections.Add(dest, src);
+                // add a reverse connection
+                if (!reverseConnections.ContainsKey(src)) {
+                    reverseConnections.Add(src, new List<string>());
+                }
+                reverseConnections[src].Add(dest);
+            }
+        }
+
         // Transmit a value from source [gate.]port to destination [gate.]port
         protected void transmit(string src, string dest) {
             Port srcPort = getPortByAddress(src);
@@ -563,31 +605,20 @@ namespace LogicNetwork
             }
         }
 
-        // Connect two ports
-        protected void connect(string src, string dest) {
-            Port srcPort = getPortByAddress(src);
-            Port destPort = getPortByAddress(dest);
-            if ((srcPort == null) || (srcPort == null)) {
-                // src or dest is not a valid port
-                // error: syntax error
-            } else if (connections.ContainsKey(dest)) {
-                // error: duplicate connection
-            } else {
-                // add a connection
-                connections.Add(dest, src);
-                // add a reverse connection
-                if (!reverseConnections.ContainsKey(src)) {
-                    reverseConnections.Add(src, new List<string>());
-                }
-                reverseConnections[src].Add(dest);
-            }
-        }
-
         // Get Port by address, eg.: [gate.]port
-        // If gate is not specified, currect gate is meant
+        // If gate is not specified, current gate is meant
         protected Port getPortByAddress(string address) {
             string[] parts = address.Split('.');
             if (parts.Length == 1) {
+                // implicit constant gate
+                // TODO: Its a bit ugly to put this rule here.
+                // It should be in Network code.
+                // There is a presumption, that there exist
+                // gates named "0" and "1" with a port named "o".
+                if (((parts[0] == "0") && gates.ContainsKey("0")) ||
+                    ((parts[0] == "1") && gates.ContainsKey("1"))) {
+                    return getGate(parts[0]).getPort("o");
+                }
                 // a port from this gate
                 return getPort(parts[0]);
             } else if (parts.Length == 2) {
@@ -648,6 +679,7 @@ namespace LogicNetwork
         // A hook for parseAbstractCompositeGate() with
         // class specific details and rules
         protected override bool isCorrecltyParsed() {
+            // nothing special for CompositeGate here
             return true;
         }
 
@@ -672,6 +704,9 @@ namespace LogicNetwork
         // Create a network prototype from string representation
         public static Network parseNetwork(StreamReader inputStream) {
             Network newGate = new Network();
+            // There are two implicit constant gates
+            newGate.addGate("0", SimpleGate.FALSE_CONSTANT_GATE);
+            newGate.addGate("1", SimpleGate.TRUE_CONSTANT_GATE);
             newGate.parseAbstractCompositeGate(inputStream);
             return newGate;
         }
