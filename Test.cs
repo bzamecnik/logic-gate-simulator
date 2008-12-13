@@ -27,7 +27,8 @@ namespace LogicNetwork
 
         public static void testSimpleGate() {
             Console.WriteLine("-- test SimpleGate --");
-            SimpleGate gate = SimpleGate.parseSimpleGate(null);
+            SimpleGate gate;
+            SimpleGate.Parser.parseSimpleGate(null, out gate);
             Console.WriteLine("example gate: " + gate);
 
             Console.WriteLine("getInputPortNames() = {0}", String.Join(", ", gate.getInputPortNames()));

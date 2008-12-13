@@ -228,7 +228,7 @@ namespace LogicNetwork
         
         public override string ToString() {
             StringBuilder sb = new StringBuilder();
-            sb.Append("Gate {\n");
+            sb.Append("Gate {{\n");
             sb.Append("inputs: [");
             foreach(KeyValuePair<string, Port> kvp in inputs) {
                 sb.AppendFormat("{0}: {1}, ", kvp.Key, kvp.Value);
@@ -414,7 +414,7 @@ namespace LogicNetwork
 
         public override string ToString() {
             StringBuilder sb = new StringBuilder();
-            sb.Append("SimpleGate {\n");
+            sb.Append("SimpleGate {{\n");
             sb.Append(base.ToString());
             sb.Append("transition table: [");
             foreach (KeyValuePair<string, string> kvp in transitionTable) {
@@ -550,12 +550,13 @@ namespace LogicNetwork
 
         // Copy constructor
         protected AbstractCompositeGate(AbstractCompositeGate other) : base(other) {
-            initialize(); // TODO: it is only needed to initialize gates
+            gates = new Dictionary<string, Gate>();
             // inner gates must be cloned
             foreach (KeyValuePair<string, Gate> kvp in other.gates) {
                 gates.Add(kvp.Key, kvp.Value.clone());
             }
             // connections could be shared (I hope)
+            // no need to initialize() them, as they are replaced immediately
             connections = other.connections;
             reverseConnections = other.reverseConnections;
         }
@@ -708,7 +709,7 @@ namespace LogicNetwork
 
         public override string ToString() {
             StringBuilder sb = new StringBuilder();
-            sb.Append("AbstractCompositeGate {\n");
+            sb.Append("AbstractCompositeGate {{\n");
             sb.Append("gates: [\n");
             foreach (KeyValuePair<string, Gate> kvp in gates) {
                 sb.AppendFormat("{0}: {1}", kvp.Key, kvp.Value);
@@ -778,11 +779,7 @@ namespace LogicNetwork
         }
 
         public override string ToString() {
-            StringBuilder sb = new StringBuilder();
-            sb.Append("CompositeGate {\n");
-            sb.Append(base.ToString());
-            sb.AppendFormat("}}\n");
-            return sb.ToString();
+            return String.Format("CompositeGate {{\n{0}}}\n", base.ToString());
         }
     }
 
@@ -886,12 +883,7 @@ namespace LogicNetwork
         }
 
         public override string ToString() {
-            StringBuilder sb = new StringBuilder();
-            // TODO: join these line to one AppendFormat() call
-            sb.Append("Network {\n");
-            sb.Append(base.ToString());
-            sb.AppendFormat("}}\n");
-            return sb.ToString();
+            return String.Format("Network {{\n{0}}}\n", base.ToString()); ;
         }
     }
 
@@ -1050,7 +1042,12 @@ namespace LogicNetwork
     class SyntaxErrorException : ApplicationException {
         public SyntaxErrorException() {}
 
+        public SyntaxErrorException(int line) : this("", line) { }
+
         public SyntaxErrorException(string message) : base(message) { }
+
+        public SyntaxErrorException(string message, int line)
+            : base(String.Format("Line {0}: {1}", line, message)) { }
     }
 
     class GateInconsistenceException : ApplicationException {
@@ -1062,9 +1059,6 @@ namespace LogicNetwork
     class Program
     {
         static void Main(string[] args) {
-            //Test.run();
-            //return;
-
             if (args.Length != 1) {
                 // no file specified
                 Console.WriteLine("Usage: LogicNetwork.exe definition_file.txt");
