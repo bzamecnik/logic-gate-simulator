@@ -17,12 +17,18 @@ namespace LogicNetwork
     // * cloning
     // - write testing code
     // * write parsing from definition file
+    // * errors -> exceptions or other handling
+    //   - translate inner exceptions to other exceptions
     //   - how to find out the line number where syntax error occured?
-    // - errors -> exceptions or other handling
     // - write more comments
     // * define implicit constant gates 0, 1 in the network
     //   - try to move the code to Network class
     // - ToString() should speak less
+    // - make a check in parseConnection()
+    // - fix isCorrecltyParsed()
+    //
+    // TIPS:
+    // - put parsing functions to inner classes (is it alright?)
 
     // Abstract base for all logic gates.
     // Part of Composite design pattern.
@@ -47,7 +53,9 @@ namespace LogicNetwork
             }
 
             public Port(Port other) {
-                value = other.value;
+                if (other != null) {
+                    value = other.value;
+                }
             }
 
             public Port(bool? value) {
@@ -59,8 +67,9 @@ namespace LogicNetwork
             }
         }
 
+        // Input and output ports
         // NOTE: Input and output ports share the space of their names
-        // NOTE: thehe two must be CLONED
+        // NOTE: The two must be cloned.
         protected Dictionary<string, Port> inputs; // input ports
         protected Dictionary<string, Port> outputs; // output ports
 
@@ -87,9 +96,9 @@ namespace LogicNetwork
         // Cloning support for the Prototype pattern
         public abstract Gate clone();
 
-        // Make one computing step and change outputs somehow.
-        // Return true if the gate and possibly all inner gates
-        // have stabilized, ie. output values haven't changed in the tick.
+        // Make one computing step (or tick) and change outputs somehow.
+        // Return true if the gate and all inner gates have
+        // stabilized, ie. output values haven't changed during the tick.
         public abstract bool tick();
 
         // Get a port
@@ -99,7 +108,7 @@ namespace LogicNetwork
             } else if (outputs.ContainsKey(portName)) {
                 return outputs[portName];
             } else {
-                return null; // error, unknown port name
+                throw new ArgumentException("Unknown port name");
             }
         }
 
@@ -147,37 +156,17 @@ namespace LogicNetwork
             return names.ToArray();
         }
 
-        // These functions are used when defining a gate prototype:
-
-        // Add a new input port, set default value
-        protected void addInputPort(string portName) {
-            addPort(portName, inputs);
-        }
-
-        // Add a new output port, set default value
-        protected void addOutputPort(string portName) {
-            addPort(portName, outputs);
-        }
-
         // Add a new port to given port group, set default value
-        private void addPort(string portName, Dictionary<string, Port> ports) {
+        protected void addPort(string portName, Dictionary<string, Port> ports) {
             if (!ports.ContainsKey(portName)) {
                 ports.Add(portName, new Port((bool?)null));
             } else {
-                // error, duplicate definition of a port
-                //throw new GateInconsistenceException();
+                throw new GateInconsistenceException("Duplicate port definition.");
             }
         }
 
-        protected void parseInputPorts(string definition) {
-            parsePorts(definition, inputs);
-        }
-
-        protected void parseOutputPorts(string definition) {
-            parsePorts(definition, outputs);
-        }
-
-        private void parsePorts(string definition, Dictionary<string, Port> ports) {
+        // Parse a line with port definitions (common code)
+        protected void parsePorts(string definition, Dictionary<string, Port> ports) {
             string[] parts = definition.Trim().Split(' ');
             foreach (string part in parts) {
                 if (isValidIdentifier(part)) {
@@ -194,6 +183,21 @@ namespace LogicNetwork
             return (identifier.IndexOfAny(badCharacters) == -1)
                 && !identifier.Contains("->")
                 && !identifier.StartsWith("end");
+        }
+
+        // Skip ingored lines.
+        // Return first line being not ignored or null if the stream finished.
+        protected static string skipIgnoredLines(StreamReader inputStream) {
+            string line = "";
+            while ((line = inputStream.ReadLine()) != null) {
+                // ingore empty lines (containing possibly whitespace)
+                // or a comments (starting with ';')
+                line = line.Trim();
+                if ((line.Length != 0) && (line[0] != ';')) {
+                    break;
+                }
+            }
+            return line;
         }
 
         public override string ToString() {
@@ -219,19 +223,25 @@ namespace LogicNetwork
         // - key: values of inputs (eg.: 1 0 ? 1 0 1)
         // - value: values of outputs (eg.: 1 0 1)
         // - Dictionary<string, string> might be an overhead
+        //   but it is easy to work with
         Dictionary<string, string> transitionTable;
 
         public static SimpleGate TRUE_CONSTANT_GATE;
         public static SimpleGate FALSE_CONSTANT_GATE;
 
         static SimpleGate() {
+            // NOTE: There might be a "problem" (not serious)
+            // that propagating the value could take 1 tick (instad of 0).
+            // Try to test it.
+            // This is not a functional issue, but it could
+            // result in behavior different from specification.
             TRUE_CONSTANT_GATE = new SimpleGate();
-            TRUE_CONSTANT_GATE.addOutputPort("o");
+            TRUE_CONSTANT_GATE.addPort("o", TRUE_CONSTANT_GATE.outputs);
             TRUE_CONSTANT_GATE.getPort("o").Value = true;
             TRUE_CONSTANT_GATE.parseTransitionFunction("1");
 
             FALSE_CONSTANT_GATE = new SimpleGate();
-            FALSE_CONSTANT_GATE.addOutputPort("o");
+            FALSE_CONSTANT_GATE.addPort("o", FALSE_CONSTANT_GATE.outputs);
             FALSE_CONSTANT_GATE.getPort("o").Value = false;
             FALSE_CONSTANT_GATE.parseTransitionFunction("0");
         }
@@ -241,14 +251,9 @@ namespace LogicNetwork
         }
 
         protected SimpleGate(SimpleGate other) : base(other) {
-            //initialize(); // not needed
-            
-            // cloned transition table
-            //foreach (KeyValuePair<string, string> kvp in other.transitionTable) {
-            //    transitionTable.Add(kvp.Key, kvp.Value);
-            //}
-            
-            // transition table could be shared (I hope)
+            // Transition table could be shared (I hope).
+            // NOTE: Call to initialize() is not needed, because we
+            // will eventualy replace it with another object.
             transitionTable = other.transitionTable;
         }
 
@@ -256,7 +261,7 @@ namespace LogicNetwork
             transitionTable = new Dictionary<string, string>();
         }
 
-
+        // Cloning support
         public override Gate clone() {
             return new SimpleGate(this);
         }
@@ -288,21 +293,21 @@ namespace LogicNetwork
         public static SimpleGate parseSimpleGate(StreamReader inputStream) {
             SimpleGate gate = new SimpleGate();
             try {
-                string line = inputStream.ReadLine();
+                string line = skipIgnoredLines(inputStream);
                 if (line.StartsWith("inputs")) {
-                    gate.parseInputPorts(line.Substring("inputs".Length));
+                    gate.parsePorts(line.Substring("inputs".Length), gate.inputs);
                 } else {
-                    // error: Missing keyword
+                    throw new SyntaxErrorException("Missing keyword (inputs).");
                 }
 
-                line = inputStream.ReadLine();
+                line = skipIgnoredLines(inputStream);
                 if (line.StartsWith("outputs")) {
-                    gate.parseOutputPorts(line.Substring("outputs".Length));
+                    gate.parsePorts(line.Substring("outputs".Length), gate.outputs);
                 } else {
-                    // error: Missing keyword
+                    throw new SyntaxErrorException("Missing keyword (outputs).");
                 }
 
-                while (((line = inputStream.ReadLine()) != null)) {
+                while (((line = skipIgnoredLines(inputStream)) != null)) {
                     if (!line.StartsWith("end")) {
                         gate.parseTransitionFunction(line);
                     } else {
@@ -311,7 +316,7 @@ namespace LogicNetwork
                 }
             }
             catch (IOException) {
-                // error: syntax error
+                throw new SyntaxErrorException();
             }
             return gate;
         }
@@ -322,18 +327,19 @@ namespace LogicNetwork
             int inputsCount = inputs.Count;
             int outputsCount = outputs.Count;
             string[] parts = definition.Trim().Split(' ');
-            if (parts.Length == (inputsCount + outputsCount)) {
-                string inputDef = String.Join(" ", parts, 0, inputsCount);
-                string outputDef = String.Join(" ", parts, inputsCount, outputsCount);
-                if (TristateBool.isValidArray(inputDef) &&
-                    TristateBool.isValidArray(outputDef)) {
-                    transitionTable.Add(inputDef, outputDef);
-                } else {
-                    // error: bad syntax
-                }
-            } else {
-                // error: bad syntax
+            if (parts.Length != (inputsCount + outputsCount)) {
+                throw new SyntaxErrorException("Transition: wrong number of values.");
             }
+            string inputDef = String.Join(" ", parts, 0, inputsCount);
+            string outputDef = String.Join(" ", parts, inputsCount, outputsCount);
+            if (!TristateBool.isValidArray(inputDef) ||
+                !TristateBool.isValidArray(outputDef)) {
+                throw new SyntaxErrorException("Transition: invalid values.");
+            }
+            if (transitionTable.ContainsKey(inputDef)) {
+                throw new SyntaxErrorException("Duplicate transition definition.");
+            }
+            transitionTable.Add(inputDef, outputDef);
         }
 
         // Compute new output values based on input values
@@ -378,6 +384,8 @@ namespace LogicNetwork
         protected Dictionary<string, Gate> gates; // name, Gate
 
         // Connections between inner gates' (or this gate's) ports.
+        // form: port adress->port address 
+        // port address:[gate.]port
         // In fact, data flow in direction: src->dest.
         // They are stored in both orders in two dictionary,
         // because we will query by both directions.
@@ -388,6 +396,7 @@ namespace LogicNetwork
             initialize();
         }
 
+        // Copy constructor
         protected AbstractCompositeGate(AbstractCompositeGate other) : base(other) {
             initialize(); // TODO: it is only needed to initialize gates
             // inner gates must be cloned
@@ -467,8 +476,9 @@ namespace LogicNetwork
         }
 
         // Create an abstract composite gate prototype from string representation
-        // This is a common code for its descentants not to be called directly.
-        // Specific rules are separated into virutal methods.
+        // This is a common code for its descentants, not to be called directly
+        // but rather by parsing funtions of its descendants.
+        // Specific rules are separated into virutal functions.
         // Template Method design pattern.
         // Format:
         //   inputs <...> - once
@@ -478,40 +488,41 @@ namespace LogicNetwork
         //   end
         protected void parseAbstractCompositeGate(StreamReader inputStream) {
             try {
-                string line = inputStream.ReadLine();
-                if (line.StartsWith("inputs")) {
-                    parseInputPorts(line.Substring("inputs".Length));
-                } else {
-                    // error: Missing keyword
+                // input ports (once)
+                string line = skipIgnoredLines(inputStream);
+                if (!line.StartsWith("inputs")) {
+                    throw new SyntaxErrorException("Missing keyword (inputs).");
                 }
+                parsePorts(line.Substring("inputs".Length), inputs);
 
-                line = inputStream.ReadLine();
-                if (line.StartsWith("outputs")) {
-                    parseOutputPorts(line.Substring("outputs".Length));
-                } else {
-                    // error: Missing keyword
+                // output ports (one)
+                line = skipIgnoredLines(inputStream);
+                if (!line.StartsWith("outputs")) {
+                    throw new SyntaxErrorException("Missing keyword (outputs).");
                 }
+                parsePorts(line.Substring("outputs".Length), outputs);
 
-                while (((line = inputStream.ReadLine()) != null)) {
-                    if (line.StartsWith("gate")) {
-                        parseInnerGate(line.Substring("gate".Length));
-                    } else {
+                // inner gates (one or more)
+                while (((line = skipIgnoredLines(inputStream)) != null)) {
+                    if (!line.StartsWith("gate")) {
                         break;
                     }
+                    parseInnerGate(line.Substring("gate".Length));
                 }
 
+                // connections between inner gates (zero or more)
                 do {
-                    if (!line.StartsWith("end")) {
-                        parseConnection(line);
-                    } else {
+                    if (line.StartsWith("end")) {
                         break;
                     }
-                } while (((line = inputStream.ReadLine()) != null));
+                    parseConnection(line);
+                } while (((line = skipIgnoredLines(inputStream)) != null));
             } catch (IOException) {
-                // error: syntax error
+                throw new SyntaxErrorException();
             }
+            // descentant specific rules apply here
             if (!isCorrecltyParsed()) {
-                // error: Binding rule broken
+                throw new SyntaxErrorException("Binding rule broken.");
             }
         }
 
@@ -524,17 +535,16 @@ namespace LogicNetwork
         //   <gate instance name> <gate type>
         protected void parseInnerGate(string definition) {
             string[] parts = definition.Trim().Split(' ');
-            if ((parts.Length == 2) && (isValidIdentifier(parts[0]))) {
-                GatePrototypeFactory factory = GatePrototypeFactory.getInstance();
-                Gate innerGate = factory.createGate(parts[1]);
-                if (innerGate != null) {
-                    addGate(parts[0], innerGate);
-                } else {
-                    // error: gate of such a type was not defined yet
-                }
-            } else {
-                // error: syntax error
+            if ((parts.Length != 2) || !isValidIdentifier(parts[0])) {
+                throw new SyntaxErrorException();
             }
+            GatePrototypeFactory factory = GatePrototypeFactory.getInstance();
+            Gate innerGate = factory.createGate(parts[1]);
+            if (innerGate == null) {
+                throw new GateInconsistenceException(String.Format(
+                    "Gate of type '{0}' was not defined yet.", parts[1]));
+            }
+            addGate(parts[0], innerGate);
         }
 
         // Parse a line defining a connection between two inner gates
@@ -546,13 +556,12 @@ namespace LogicNetwork
         protected void parseConnection(string definition) {
             string[] parts = definition.Trim().Split(new string[] { "->" },
                 StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length == 2) {
-                // TODO: check if it is ok to connect the two ports
-                // else -> Binding rule broken
-                connect(parts[1], parts[0]);
-            } else {
-                // error: syntax error
+            if (parts.Length != 2) {
+                throw new SyntaxErrorException("Invalid gate connection format");
             }
+            // TODO: check if it is ok to connect the two ports
+            // else -> Binding rule broken
+            connect(parts[1], parts[0]);
         }
 
         // Connect two ports
@@ -561,48 +570,50 @@ namespace LogicNetwork
             Port destPort = getPortByAddress(dest);
             if ((srcPort == null) || (srcPort == null)) {
                 // src or dest is not a valid port
-                // error: syntax error
-            } else if (connections.ContainsKey(dest)) {
-                // error: duplicate connection
-            } else {
-                // add a connection
-                connections.Add(dest, src);
-                // add a reverse connection
-                if (!reverseConnections.ContainsKey(src)) {
-                    reverseConnections.Add(src, new List<string>());
-                }
-                reverseConnections[src].Add(dest);
+                throw new SyntaxErrorException("Invalid port.");
             }
+            if (connections.ContainsKey(dest)) {
+                throw new GateInconsistenceException("Duplicate connection.");
+            }
+            // add a connection
+            connections.Add(dest, src);
+            // add a reverse connection
+            if (!reverseConnections.ContainsKey(src)) {
+                reverseConnections.Add(src, new List<string>());
+            }
+            reverseConnections[src].Add(dest);
         }
 
         // Transmit a value from source [gate.]port to destination [gate.]port
         protected void transmit(string src, string dest) {
             Port srcPort = getPortByAddress(src);
             Port destPort = getPortByAddress(dest);
-            if ((srcPort != null) && (srcPort != null)) {
-                destPort.Value = srcPort.Value;
-            } else {
-                // error: invalid argument
+            if ((srcPort == null) || (srcPort == null)) {
+                throw new ArgumentException();
             }
+            destPort.Value = srcPort.Value;
         }
 
-        // Add an inner gate
+        // Add an inner gate instance
         protected void addGate(string gateName, Gate gate) {
-            if ((gate != null) && !(gate is Network)
-                && !gates.ContainsKey(gateName)) {
-                gates.Add(gateName, gate);
-            } else {
-                // TODO: error: gate is not a Network
+            if (gate == null) {
+                throw new ArgumentException();
             }
+            if (gate is Network) {
+                throw new ArgumentException("Cannot add a network inside another gate.");
+            }
+            if (gates.ContainsKey(gateName)) {
+                throw new GateInconsistenceException("Duplicate inner gate instantiation.");
+            }
+            gates.Add(gateName, gate);
         }
 
-        // Get gate by name
+        // Get inner gate instance by name
         protected Gate getGate(string gateName) {
-            if (gates.ContainsKey(gateName)) {
-                return gates[gateName];
-            } else {
-                return null; // no such an inner gate
+            if (!gates.ContainsKey(gateName)) {
+                throw new ArgumentException("No such a gate.");
             }
+            return gates[gateName];
         }
 
         // Get Port by address, eg.: [gate.]port
@@ -623,14 +634,13 @@ namespace LogicNetwork
                 return getPort(parts[0]);
             } else if (parts.Length == 2) {
                 Gate gate = getGate(parts[0]);
-                if (gate != null) {
-                    // a port from an inner gate
-                    return gate.getPort(parts[1]);
-                } else {
-                    return null; // no such an inner gate
+                if (gate == null) {
+                    throw new ArgumentException("No such an inner gate.");
                 }
+                // a port from an inner gate
+                return gate.getPort(parts[1]);
             }
-            return null; // invalid address format
+            throw new SyntaxErrorException("Invalid format of a port address.");
         }
 
         public override string ToString() {
@@ -714,11 +724,19 @@ namespace LogicNetwork
         // A hook for parseAbstractCompositeGate() with
         // class specific details and rules
         protected override bool isCorrecltyParsed() {
-            // there is at least one input port
-            if (inputs.Count <= 0) {
+            // there is at least one input port and one output port
+            if ((inputs.Count <= 0) && (outputs.Count <= 0)) {
                 return false;
             }
-            // all input ports are connected to at least one port
+
+            // there is at least one inner gate
+            // NOTE: there are two implicit gates ("0", "1")
+            if (gates.Count <= 2) {
+                return false;
+            }
+
+            // every input port is connected to at least
+            // one inner gate input port
             string[] inputPortNames = getInputPortNames();
             foreach (string portName in inputPortNames) {
                 if (!reverseConnections.ContainsKey(portName)) {
@@ -726,11 +744,13 @@ namespace LogicNetwork
                 }
                 List<string> connectedPorts = reverseConnections[portName];
                 if (connectedPorts == null) {
-                    // error: GateInconsistenceException
+                    throw new GateInconsistenceException();
                 }
                 if (connectedPorts.Count <= 0) {
                     return false; // not connected
                 }
+                // TODO: check if it is connected to al least one
+                // _inner gate_ input port (not just this gate output ports)
             }
             return true;
         }
@@ -746,7 +766,7 @@ namespace LogicNetwork
             // set inputs according to inputValues
             bool?[] inputsArray = TristateBool.arrayFromString(inputValues);
             if (inputsArray.Length != inputs.Count) {
-                // error: syntax error
+                throw new SyntaxErrorException("Wrong number of values.");
             }
             setPortGroup(inputsArray, inputs);
             // cycle until bail-out
@@ -763,6 +783,7 @@ namespace LogicNetwork
 
         public override string ToString() {
             StringBuilder sb = new StringBuilder();
+            // TODO: join these line to one AppendFormat() call
             sb.Append("Network {\n");
             sb.Append(base.ToString());
             sb.AppendFormat("}}\n");
@@ -795,20 +816,22 @@ namespace LogicNetwork
         // The logic gate network (there's only one)
         Network network;
 
-
         // The network as a read-only property
         public Network Network {
             get { return network; }
         }
 
-        // Parse a file with definition of all the gates and a network
-        // Can throw SyntaxErrorException
+        // Parse a file (stream) with definitions
+        // of all the gates and a network
         public void parseGates(StreamReader inputStream) {
             string line = null;
             while ((line = inputStream.ReadLine()) != null) {
-                line = line.Trim();
+                // NOTE: Rules which lines to ignore are already
+                // in protected SimpleGate.skipIgnoredLine().
+                
                 // ingore empty lines (containing possibly whitespace)
                 // or a comments (starting with ';')
+                line = line.Trim();
                 if ((line.Length == 0)
                     || (line[0] == ';')) {
                     continue;
@@ -818,52 +841,52 @@ namespace LogicNetwork
                 Gate gate = null;
                 if (parts[0].Equals("gate")) {
                     gate = SimpleGate.parseSimpleGate(inputStream);
-                    if (parts.Length == 2) {
-                        defineGate(parts[1], gate);
-                    } else {
-                        // error: syntax error
+                    if (parts.Length != 2) {
+                        throw new SyntaxErrorException();
                     }
+                    defineGate(parts[1], gate);
                 } else if (parts[0].Equals("composite")) {
                     gate = CompositeGate.parseCompositeGate(inputStream);
-                    if (parts.Length == 2) {
-                        defineGate(parts[1], gate);
-                    } else {
-                        // error: syntax error
+                    if (parts.Length != 2) {
+                        throw new SyntaxErrorException();
                     }
+                    defineGate(parts[1], gate);
                 } else if (parts[0].Equals("network")) {
                     gate = Network.parseNetwork(inputStream);
                     defineGate("", gate);
                 } else {
-                    // error: syntax error
+                    throw new SyntaxErrorException();
                 }
+            }
+            if (network == null) {
+                throw new GateInconsistenceException("No network defined.");
             }
         }
 
         // Register a new gate prototype
         void defineGate(string gateName, Gate gate) {
             if (gate == null) {
-                // TODO: error: gate is null
-            } else if (gate is Network) {
-                if (network == null) {
-                    network = (Network)gate;
-                } else {
-                    // TODO: error: more than one network
+                throw new ArgumentException("Gate is null.");
+            }
+            if (gate is Network) {
+                if (network != null) {
+                    throw new GateInconsistenceException("Defining more than one network.");
                 }
+                network = (Network)gate;
             } else {
-                if (!gates.ContainsKey(gateName)) {
-                    gates.Add(gateName, gate);
-                } else {
-                    // TODO: error: duplicate gate definition
+                if (gates.ContainsKey(gateName)) {
+                    throw new GateInconsistenceException("Duplicate gate definition.");
                 }
+                gates.Add(gateName, gate);
             }
         }
 
         // Create a clone of a defined gate prototype
         public Gate createGate(string gateName) {
-            if (gates.ContainsKey(gateName)) {
-                return gates[gateName].clone();
+            if (!gates.ContainsKey(gateName)) {
+                throw new ArgumentException("No such a gate.");
             }
-            return null; // error: no gate of such a name
+            return gates[gateName].clone();
         }
 
     }
@@ -888,8 +911,7 @@ namespace LogicNetwork
             } else if (str.Equals("?")) {
                 return null;
             } else {
-                // error: InvalidArgumentException
-                return null;
+                throw new ArgumentException();
             }
         }
 
@@ -905,7 +927,9 @@ namespace LogicNetwork
             string[] parts = str.Trim().Split(' ');
             List<bool?> values = new List<bool?>();
             foreach (string part in parts) {
-                values.Add(TristateBool.fromString(part));
+                if (part.Length > 0) {
+                    values.Add(TristateBool.fromString(part));
+                }
             }
             return values.ToArray();
         }
@@ -915,9 +939,17 @@ namespace LogicNetwork
         }
     }
 
-    class SyntaxErrorException : ApplicationException { }
+    class SyntaxErrorException : ApplicationException {
+        public SyntaxErrorException() {}
 
-    class GateInconsistenceException : ApplicationException { }
+        public SyntaxErrorException(string message) : base(message) { }
+    }
+
+    class GateInconsistenceException : ApplicationException {
+        public GateInconsistenceException() {}
+        
+        public GateInconsistenceException(string message) : base(message) { }
+    }
 
     class Program
     {
@@ -925,50 +957,68 @@ namespace LogicNetwork
             //Test.run();
             //return;
 
-            if (args.Length == 1) {
-                GatePrototypeFactory gateFactory = GatePrototypeFactory.getInstance();
+            if (args.Length != 1) {
+                // no file specified
+                Console.WriteLine("Usage: LogicNetwork.exe definition_file.txt");
+            }
 
-                FileStream fs = null;
+            GatePrototypeFactory gateFactory = GatePrototypeFactory.getInstance();
+
+            FileStream fs = null;
+            try {
+                fs = new FileStream(args[0], FileMode.Open, FileAccess.Read);
+                StreamReader reader = new StreamReader(fs);
+                
+                // Parse the config file.
+                // Fill the GatePrototypeFactory with gate prototypes.
+
                 try {
-                    fs = new FileStream(args[0], FileMode.Open, FileAccess.Read);
-                    StreamReader reader = new StreamReader(fs);
-                    
-                    // Parse the config file.
-                    // Fill the GatePrototypeFactory with gate prototypes.
-
                     gateFactory.parseGates(reader);
-
-                } catch (FileNotFoundException) {
-                    Console.WriteLine("File not found: {0}", args[0]);
-                    return;
-                } finally {
-                    if (fs != null) {
-                        fs.Close();
-                    }
                 }
-                
-                // create an instance of the network
-                Network network = gateFactory.Network;
-
-                if (network == null) {
-                    Console.WriteLine("Error: Syntax error. No network specified.");
+                catch (SyntaxErrorException ex) {
+                    Console.WriteLine("Syntax error: {0}", ex.Message);
                     return;
                 }
-                
-                // main evaluating loop
-                string line = "";
-                while ((line = Console.ReadLine()) != null) {
-                    if (line.Equals("end")) {
-                        break;
-                    } else if (line.Equals("print network")) {
-                        Console.WriteLine(network); //DEBUG
-                    } else {
+                catch (GateInconsistenceException ex) {
+                    Console.WriteLine("Gate inconsistence: {0}", ex.Message);
+                    return;
+                }
+                catch (ArgumentException ex) {
+                    Console.WriteLine("Invalid argument: {0}", ex.Message);
+                    return;
+                }
+            } catch (FileNotFoundException) {
+                Console.WriteLine("File not found: {0}", args[0]);
+                return;
+            } finally {
+                if (fs != null) {
+                    fs.Close();
+                }
+            }
+            
+            // create an instance of the network
+            Network network = gateFactory.Network;
+            
+            // main evaluating loop
+            string line = "";
+            while ((line = Console.ReadLine()) != null) {
+                if (line.Equals("end")) {
+                    break;
+                } else if (line.Equals("print network")) {
+                    Console.WriteLine(network); //DEBUG
+                } else {
+                    try {
                         Console.WriteLine(network.evaluate(line));
                     }
+                    catch (SyntaxErrorException ex) {
+                        Console.WriteLine("Syntax error: {0}", ex.Message);
+                        break;
+                    }
+                    catch (ArgumentException ex) {
+                        Console.WriteLine("Invalid argument: {0}", ex.Message);
+                        break;
+                    }
                 }
-            } else {
-                // error: no file specified
-                Console.WriteLine("Usage: LogicNetwork.exe definition_file.txt");
             }
         }
     }
