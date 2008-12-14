@@ -24,13 +24,14 @@ namespace LogicNetwork
     //   * how to find out the line number where syntax error occured?
     //   * count lines to know where a syntax exception occured
     //   * make exceptions know about the line numbers
+    //   - print less info (according to specification)
     // - write more comments
     //   - to Parsers
     // * define implicit constant gates 0, 1 in the network
     //   - try to move the code to Network class
     // - ToString() should speak less
-    // - make a check in parseConnection()
-    // - fix isCorrecltyParsed()
+    // * make a check in parseConnection()
+    // * fix isCorrectlyParsed()
     // * put parsing functions to nested (inner) classes
     //   * make a hierarchy
     //   * there would be current line number (of the stream)
@@ -53,18 +54,35 @@ namespace LogicNetwork
                 set { this.value = value; }
             }
 
-            public Port() {
+            
+            public enum IOType
+            {
+                INPUT,
+                OUTPUT
+            }
+
+            // Port type
+            IOType type; // (input, output)
+
+            public IOType Type {
+                get { return type; }
+            }
+
+            public Port(IOType type) {
                 value = null;
+                this.type = type;
             }
 
             public Port(Port other) {
                 if (other != null) {
                     value = other.value;
+                    this.type = other.type;
                 }
             }
 
-            public Port(bool? value) {
+            public Port(bool? value, IOType type) {
                 this.value = value;
+                this.type = type;
             }
 
             public override string ToString() {
@@ -94,12 +112,12 @@ namespace LogicNetwork
             }
 
             // Parse a line with port definitions (common code)
-            protected void parsePorts(string definition, Dictionary<string, Port> ports) {
+            protected void parsePorts(string definition, Port.IOType type) {
                 string[] parts = definition.Trim().Split(' ');
                 foreach (string part in parts) {
                     if (isValidIdentifier(part)) {
                         try {
-                            gate.addPort(part, ports);
+                            gate.addPort(part, type);
                         }
                         catch (DuplicateDefinitionException ex) {
                             // rethrow with line number
@@ -228,12 +246,19 @@ namespace LogicNetwork
         }
 
         // Add a new port to given port group, set default value
-        protected void addPort(string portName, Dictionary<string, Port> ports) {
-            if (!ports.ContainsKey(portName)) {
-                ports.Add(portName, new Port((bool?)null));
-            } else {
+        protected Port addPort(string portName, Port.IOType type) {
+            Dictionary<string, Port> ports = null;
+            switch (type) {
+                case Port.IOType.INPUT: ports = inputs; break;
+                case Port.IOType.OUTPUT: ports = outputs; break;
+                //default: // should never happen
+            }
+            if (ports.ContainsKey(portName)) {
                 throw new DuplicateDefinitionException("Duplicate port definition.");
             }
+            Port newPort = new Port((bool?)null, type);
+            ports.Add(portName, newPort);
+            return newPort;
         }
         
         public override string ToString() {
@@ -284,14 +309,14 @@ namespace LogicNetwork
                 try {
                     string line = parser.readUsefulLine(inputStream);
                     if (line.StartsWith("inputs")) {
-                        parser.parsePorts(line.Substring("inputs".Length), gate.inputs);
+                        parser.parsePorts(line.Substring("inputs".Length), Port.IOType.INPUT);
                     } else {
                         throw new MissingKeywordException("inputs", parser.Line);
                     }
 
                     line = parser.readUsefulLine(inputStream);
                     if (line.StartsWith("outputs")) {
-                        parser.parsePorts(line.Substring("outputs".Length), gate.outputs);
+                        parser.parsePorts(line.Substring("outputs".Length), Port.IOType.OUTPUT);
                     } else {
                         throw new MissingKeywordException("outputs", parser.Line);
                     }
@@ -330,8 +355,7 @@ namespace LogicNetwork
                     throw new SyntaxErrorException("Duplicate transition definition.", Line);
                 }
                 gate.transitionTable.Add(inputDef, outputDef);
-            }
-        
+            }        
         }
 
         // Transition table
@@ -341,23 +365,18 @@ namespace LogicNetwork
         //   but it is easy to work with
         Dictionary<string, string> transitionTable;
 
+        // Implicit constant gates.
+        // No inputs, one output (0 or 1).
         public static SimpleGate TRUE_CONSTANT_GATE;
         public static SimpleGate FALSE_CONSTANT_GATE;
 
         static SimpleGate() {
-            // NOTE: There might be a "problem" (not serious)
-            // that propagating the value could take 1 tick (instad of 0).
-            // Try to test it.
-            // This is not a functional issue, but it could
-            // result in behavior different from specification.
             TRUE_CONSTANT_GATE = new SimpleGate();
-            TRUE_CONSTANT_GATE.addPort("o", TRUE_CONSTANT_GATE.outputs);
-            TRUE_CONSTANT_GATE.getPort("o").Value = true;
+            TRUE_CONSTANT_GATE.addPort("o", Port.IOType.OUTPUT).Value = true;
             TRUE_CONSTANT_GATE.transitionTable.Add("", "1");
 
             FALSE_CONSTANT_GATE = new SimpleGate();
-            FALSE_CONSTANT_GATE.addPort("o", FALSE_CONSTANT_GATE.outputs);
-            FALSE_CONSTANT_GATE.getPort("o").Value = false;
+            FALSE_CONSTANT_GATE.addPort("o", Port.IOType.OUTPUT).Value = false;
             FALSE_CONSTANT_GATE.transitionTable.Add("", "0");
         }
 
@@ -467,14 +486,14 @@ namespace LogicNetwork
                     if (!line.StartsWith("inputs")) {
                         throw new MissingKeywordException("inputs", Line);
                     }
-                    parsePorts(line.Substring("inputs".Length), gate.inputs);
+                    parsePorts(line.Substring("inputs".Length), Port.IOType.INPUT);
 
                     // output ports (one)
                     line = readUsefulLine(inputStream);
                     if (!line.StartsWith("outputs")) {
                         throw new MissingKeywordException("outputs", Line);
                     }
-                    parsePorts(line.Substring("outputs".Length), gate.outputs);
+                    parsePorts(line.Substring("outputs".Length), Port.IOType.OUTPUT);
 
                     // inner gates (one or more)
                     while (((line = readUsefulLine(inputStream)) != null)) {
@@ -496,14 +515,14 @@ namespace LogicNetwork
                     throw new SyntaxErrorException(Line);
                 }
                 // descentant specific rules apply here
-                if (!isCorrecltyParsed()) {
+                if (!isCorrectlyParsed()) {
                     throw new BindingRuleException(Line);
                 }
             }
 
             // A hook for parseAbstractCompositeGate() with
             // class specific details and rules
-            protected abstract bool isCorrecltyParsed();
+            protected abstract bool isCorrectlyParsed();
 
             // Parse a line of inner gate definition.
             // Format:
@@ -554,6 +573,10 @@ namespace LogicNetwork
                 }
                 catch (DuplicateDefinitionException ex) {
                     // rethrow with line number
+                    ex.Line = Line;
+                    throw ex;
+                }
+                catch (BindingRuleException ex) {
                     ex.Line = Line;
                     throw ex;
                 }
@@ -663,12 +686,26 @@ namespace LogicNetwork
 
         // Connect two ports
         protected void connect(string src, string dest) {
-            Port srcPort = getPortByAddress(src);
-            Port destPort = getPortByAddress(dest);
-            if ((srcPort == null) || (srcPort == null)) {
-                // src or dest is not a valid port
-                throw new ArgumentException("Invalid port.");
+            Gate srcGate;
+            Port srcPort = getPortAndGateByAddress(src, out srcGate);
+            Gate destGate;
+            Port destPort = getPortAndGateByAddress(dest, out destGate);
+
+            // Check if it is ok to connect the two ports.
+            // We need to know if the port is in an inner or composite gate.
+            // What is ok (anything else is prohibited):
+            //   gate.input->input
+            //   gate.input->gate.output
+            //   output->gate.output
+
+            if (!(((destGate != this) && (destPort.Type == Port.IOType.INPUT)
+                    && (((srcGate == this) && (srcPort.Type == Port.IOType.INPUT)) ||
+                        ((srcGate != this) && (srcPort.Type == Port.IOType.OUTPUT))))
+                || ((destGate == this) && (destPort.Type == Port.IOType.OUTPUT)
+                    && (srcGate != this) && (srcPort.Type == Port.IOType.OUTPUT)))) {
+                throw new BindingRuleException("Invalid port connection.");
             }
+
             if (connections.ContainsKey(dest)) {
                 throw new DuplicateDefinitionException("Duplicate connection.");
             }
@@ -685,9 +722,6 @@ namespace LogicNetwork
         protected void transmit(string src, string dest) {
             Port srcPort = getPortByAddress(src);
             Port destPort = getPortByAddress(dest);
-            if ((srcPort == null) || (srcPort == null)) {
-                throw new ArgumentException();
-            }
             destPort.Value = srcPort.Value;
         }
 
@@ -716,25 +750,33 @@ namespace LogicNetwork
         // Get Port by address, eg.: [gate.]port
         // If gate is not specified, current gate is meant
         protected Port getPortByAddress(string address) {
+            Gate gate;
+            // ignore the gate returned
+            return getPortAndGateByAddress(address, out gate);
+        }
+
+        // Get Port by address, eg.: [gate.]port
+        // If gate is not specified, current gate is meant.
+        // Parameter gate: gate where port is located.
+        protected Port getPortAndGateByAddress(string address, out Gate gate) {
             string[] parts = address.Split('.');
             if (parts.Length == 1) {
-                // implicit constant gate
-                // TODO: Its a bit ugly to put this rule here.
-                // It should be in Network code.
-                // There is a presumption, that there exist
-                // gates named "0" and "1" with a port named "o".
                 if (((parts[0] == "0") && gates.ContainsKey("0")) ||
                     ((parts[0] == "1") && gates.ContainsKey("1"))) {
-                    return getGate(parts[0]).getPort("o");
+                    // implicit constant gate
+                    // TODO: Its a bit ugly to put this rule here.
+                    // It should be in Network code.
+                    // There is a presumption, that there exist
+                    // gates named "0" and "1" with a port named "o".
+                    gate = getGate(parts[0]);
+                    return gate.getPort("o");
                 }
                 // a port from this gate
+                gate = this;
                 return getPort(parts[0]);
             } else if (parts.Length == 2) {
-                Gate gate = getGate(parts[0]);
-                if (gate == null) {
-                    throw new ArgumentException("No such an inner gate.");
-                }
                 // a port from an inner gate
+                gate = getGate(parts[0]);
                 return gate.getPort(parts[1]);
             }
             throw new ArgumentException("Invalid format of a port address.");
@@ -797,8 +839,24 @@ namespace LogicNetwork
 
             // A hook for parseAbstractCompositeGate() with
             // class specific details and rules
-            protected override bool isCorrecltyParsed() {
-                // nothing special for CompositeGate here
+            protected override bool isCorrectlyParsed() {
+                // Check if input ports are not directly connected
+                // to output ports.
+                string[] inputPortNames = gate.getInputPortNames();
+                foreach (string inputPortName in inputPortNames) {
+                    List<string> connectedPorts = gate.reverseConnections[inputPortName];
+                    if (connectedPorts == null) {
+                        // inconsistence between connections and reverseConnections
+                        throw new SyntaxErrorException(Line);
+                    }
+                    foreach (string port in connectedPorts) {
+                        if (isValidIdentifier(port)) {
+                            // port is not in form gate.port, so it is
+                            // this gate's port
+                            return false; // input port connected to output port
+                        }
+                    }
+                }
                 return true;
             }
         }
@@ -848,8 +906,9 @@ namespace LogicNetwork
 
             // A hook for parseAbstractCompositeGate() with
             // class specific details and rules
-            protected override bool isCorrecltyParsed() {
-                // there is at least one input port and one output port
+            protected override bool isCorrectlyParsed() {
+                // there is at least one input port
+                // and at least and one output port
                 if ((gate.inputs.Count <= 0) && (gate.outputs.Count <= 0)) {
                     return false;
                 }
@@ -872,11 +931,20 @@ namespace LogicNetwork
                         // inconsistence between connections and reverseConnections
                         throw new SyntaxErrorException(Line);
                     }
+                    // Check if it is connected to at least one
+                    // _inner gate_ input port and no output ports of this gate.
+                    // (Composite gate input ports can't be connected
+                    // directly to that gate output ports!)
                     if (connectedPorts.Count <= 0) {
                         return false; // not connected
                     }
-                    // TODO: check if it is connected to al least one
-                    // _inner gate_ input port (not just this gate output ports)
+                    foreach (string port in connectedPorts) {
+                        if (isValidIdentifier(port)) {
+                            // port is not in form gate.port, so it is
+                            // this gate's port
+                            return false; // input port connected to output port
+                        }
+                    }
                 }
                 return true;
             }
@@ -960,13 +1028,12 @@ namespace LogicNetwork
             while ((line = inputStream.ReadLine()) != null) {
                 linesRead++;
                 // NOTE: Rules which lines to ignore are already
-                // in protected SimpleGate.skipIgnoredLine().
+                // in protected Gate.Parser.readUsefulLine().
                 
                 // ingore empty lines (containing possibly whitespace)
                 // or a comments (starting with ';')
                 line = line.Trim();
-                if ((line.Length == 0)
-                    || (line[0] == ';')) {
+                if ((line.Length == 0) || (line[0] == ';')) {
                     continue;
                 }
 
@@ -977,7 +1044,8 @@ namespace LogicNetwork
                     }
                     SimpleGate gate;
                     try {
-                        linesRead += SimpleGate.Parser.parseSimpleGate(inputStream, out gate);
+                        linesRead += SimpleGate.Parser.parseSimpleGate(
+                            inputStream, out gate);
                     }
                     catch (SyntaxErrorException ex) {
                         ex.Line += linesRead;
@@ -997,7 +1065,8 @@ namespace LogicNetwork
                     }
                     CompositeGate gate;
                     try {
-                        linesRead += CompositeGate.Parser.parseCompositeGate(inputStream, out gate);
+                        linesRead += CompositeGate.Parser.parseCompositeGate(
+                            inputStream, out gate);
                     }
                     catch (SyntaxErrorException ex) {
                         ex.Line += linesRead;
@@ -1047,12 +1116,14 @@ namespace LogicNetwork
             }
             if (gate is Network) {
                 if (network != null) {
-                    throw new DuplicateDefinitionException("Defining more than one network.");
+                    throw new DuplicateDefinitionException(
+                        "Defining more than one network.");
                 }
                 network = (Network)gate;
             } else {
                 if (gates.ContainsKey(gateName)) {
-                    throw new DuplicateDefinitionException("Duplicate gate definition.");
+                    throw new DuplicateDefinitionException(
+                        "Duplicate gate definition.");
                 }
                 gates.Add(gateName, gate);
             }
@@ -1145,7 +1216,7 @@ namespace LogicNetwork
     class BindingRuleException : SyntaxErrorException {
         //public BindingRuleException() { }
         public BindingRuleException(int line) : base(line) {}
-        //public BindingRuleException(string message) : base(message) { }
+        public BindingRuleException(string message) : base(message) { }
         //public BindingRuleException(string message, int line) : base(message, line) { }
     }
 
