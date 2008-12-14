@@ -15,14 +15,17 @@ namespace LogicNetwork
     //   * return information about stabilizing
     // * Network.evaluate()
     // * cloning
-    // - write testing code
+    // - write testing code or test manually
+    //   - test infinite loop
     // * write parsing from definition file
     // * errors -> exceptions or other handling
-    //   - translate inner exceptions to other exceptions
+    //   * translate inner exceptions to other exceptions
+    //     - check if none was forgotten
     //   * how to find out the line number where syntax error occured?
     //   * count lines to know where a syntax exception occured
-    //   - make exceptions know about the line numbers
+    //   * make exceptions know about the line numbers
     // - write more comments
+    //   - to Parsers
     // * define implicit constant gates 0, 1 in the network
     //   - try to move the code to Network class
     // - ToString() should speak less
@@ -95,7 +98,14 @@ namespace LogicNetwork
                 string[] parts = definition.Trim().Split(' ');
                 foreach (string part in parts) {
                     if (isValidIdentifier(part)) {
-                        gate.addPort(part, ports);
+                        try {
+                            gate.addPort(part, ports);
+                        }
+                        catch (DuplicateDefinitionException ex) {
+                            // rethrow with line number
+                            ex.Line = Line;
+                            throw ex;
+                        }
                     }
                 }
             }
@@ -222,7 +232,7 @@ namespace LogicNetwork
             if (!ports.ContainsKey(portName)) {
                 ports.Add(portName, new Port((bool?)null));
             } else {
-                throw new GateInconsistenceException("Duplicate port definition.");
+                throw new DuplicateDefinitionException("Duplicate port definition.");
             }
         }
         
@@ -276,14 +286,14 @@ namespace LogicNetwork
                     if (line.StartsWith("inputs")) {
                         parser.parsePorts(line.Substring("inputs".Length), gate.inputs);
                     } else {
-                        throw new SyntaxErrorException("Missing keyword (inputs).");
+                        throw new MissingKeywordException("inputs", parser.Line);
                     }
 
                     line = parser.readUsefulLine(inputStream);
                     if (line.StartsWith("outputs")) {
                         parser.parsePorts(line.Substring("outputs".Length), gate.outputs);
                     } else {
-                        throw new SyntaxErrorException("Missing keyword (outputs).");
+                        throw new MissingKeywordException("outputs", parser.Line);
                     }
 
                     while (((line = parser.readUsefulLine(inputStream)) != null)) {
@@ -295,7 +305,7 @@ namespace LogicNetwork
                     }
                 }
                 catch (IOException) {
-                    throw new SyntaxErrorException();
+                    throw new SyntaxErrorException(parser.Line);
                 }
                 parsedGate = parser.ParsedGate;
                 return parser.Line;
@@ -308,16 +318,16 @@ namespace LogicNetwork
                 int outputsCount = gate.outputs.Count;
                 string[] parts = definition.Trim().Split(' ');
                 if (parts.Length != (inputsCount + outputsCount)) {
-                    throw new SyntaxErrorException("Transition: wrong number of values.");
+                    throw new SyntaxErrorException("Transition: wrong number of values.", Line);
                 }
                 string inputDef = String.Join(" ", parts, 0, inputsCount);
                 string outputDef = String.Join(" ", parts, inputsCount, outputsCount);
                 if (!TristateBool.isValidArray(inputDef) ||
                     !TristateBool.isValidArray(outputDef)) {
-                    throw new SyntaxErrorException("Transition: invalid values.");
+                    throw new SyntaxErrorException("Transition: invalid values.", Line);
                 }
                 if (gate.transitionTable.ContainsKey(inputDef)) {
-                    throw new SyntaxErrorException("Duplicate transition definition.");
+                    throw new SyntaxErrorException("Duplicate transition definition.", Line);
                 }
                 gate.transitionTable.Add(inputDef, outputDef);
             }
@@ -455,14 +465,14 @@ namespace LogicNetwork
                     // input ports (once)
                     string line = readUsefulLine(inputStream);
                     if (!line.StartsWith("inputs")) {
-                        throw new SyntaxErrorException("Missing keyword (inputs).");
+                        throw new MissingKeywordException("inputs", Line);
                     }
                     parsePorts(line.Substring("inputs".Length), gate.inputs);
 
                     // output ports (one)
                     line = readUsefulLine(inputStream);
                     if (!line.StartsWith("outputs")) {
-                        throw new SyntaxErrorException("Missing keyword (outputs).");
+                        throw new MissingKeywordException("outputs", Line);
                     }
                     parsePorts(line.Substring("outputs".Length), gate.outputs);
 
@@ -483,11 +493,11 @@ namespace LogicNetwork
                     } while (((line = readUsefulLine(inputStream)) != null));
                 }
                 catch (IOException) {
-                    throw new SyntaxErrorException();
+                    throw new SyntaxErrorException(Line);
                 }
                 // descentant specific rules apply here
                 if (!isCorrecltyParsed()) {
-                    throw new SyntaxErrorException("Binding rule broken.");
+                    throw new BindingRuleException(Line);
                 }
             }
 
@@ -501,15 +511,28 @@ namespace LogicNetwork
             protected void parseInnerGate(string definition) {
                 string[] parts = definition.Trim().Split(' ');
                 if ((parts.Length != 2) || !isValidIdentifier(parts[0])) {
-                    throw new SyntaxErrorException();
+                    throw new SyntaxErrorException(Line);
                 }
                 GatePrototypeFactory factory = GatePrototypeFactory.getInstance();
-                Gate innerGate = factory.createGate(parts[1]);
-                if (innerGate == null) {
-                    throw new GateInconsistenceException(String.Format(
-                        "Gate of type '{0}' was not defined yet.", parts[1]));
+                Gate innerGate = null;
+                try {
+                    innerGate = factory.createGate(parts[1]);
                 }
-                gate.addGate(parts[0], innerGate);
+                catch (ArgumentException) {
+                    throw new SyntaxErrorException(String.Format(
+                        "Gate of type '{0}' was not defined yet.", parts[1]), Line);
+                }
+                try {
+                    gate.addGate(parts[0], innerGate);
+                }
+                catch (DuplicateDefinitionException ex) {
+                    // rethrow with line number
+                    ex.Line = Line;
+                    throw ex;
+                }
+                catch (ArgumentException ex) {
+                    throw new SyntaxErrorException(ex.Message, Line);
+                }
             }
 
             // Parse a line defining a connection between two inner gates
@@ -522,11 +545,21 @@ namespace LogicNetwork
                 string[] parts = definition.Trim().Split(new string[] { "->" },
                     StringSplitOptions.RemoveEmptyEntries);
                 if (parts.Length != 2) {
-                    throw new SyntaxErrorException("Invalid gate connection format");
+                    throw new SyntaxErrorException("Invalid gate connection format", Line);
                 }
                 // TODO: check if it is ok to connect the two ports
                 // else -> Binding rule broken
-                gate.connect(parts[1], parts[0]);
+                try {
+                    gate.connect(parts[1], parts[0]);
+                }
+                catch (DuplicateDefinitionException ex) {
+                    // rethrow with line number
+                    ex.Line = Line;
+                    throw ex;
+                }
+                catch (ArgumentException ex) {
+                    throw new SyntaxErrorException(ex.Message, Line);
+                }
             }
             
         }
@@ -634,10 +667,10 @@ namespace LogicNetwork
             Port destPort = getPortByAddress(dest);
             if ((srcPort == null) || (srcPort == null)) {
                 // src or dest is not a valid port
-                throw new SyntaxErrorException("Invalid port.");
+                throw new ArgumentException("Invalid port.");
             }
             if (connections.ContainsKey(dest)) {
-                throw new GateInconsistenceException("Duplicate connection.");
+                throw new DuplicateDefinitionException("Duplicate connection.");
             }
             // add a connection
             connections.Add(dest, src);
@@ -667,7 +700,7 @@ namespace LogicNetwork
                 throw new ArgumentException("Cannot add a network inside another gate.");
             }
             if (gates.ContainsKey(gateName)) {
-                throw new GateInconsistenceException("Duplicate inner gate instantiation.");
+                throw new DuplicateDefinitionException("Duplicate inner gate instantiation.");
             }
             gates.Add(gateName, gate);
         }
@@ -704,7 +737,7 @@ namespace LogicNetwork
                 // a port from an inner gate
                 return gate.getPort(parts[1]);
             }
-            throw new SyntaxErrorException("Invalid format of a port address.");
+            throw new ArgumentException("Invalid format of a port address.");
         }
 
         public override string ToString() {
@@ -836,7 +869,8 @@ namespace LogicNetwork
                     }
                     List<string> connectedPorts = gate.reverseConnections[portName];
                     if (connectedPorts == null) {
-                        throw new GateInconsistenceException();
+                        // inconsistence between connections and reverseConnections
+                        throw new SyntaxErrorException(Line);
                     }
                     if (connectedPorts.Count <= 0) {
                         return false; // not connected
@@ -867,7 +901,7 @@ namespace LogicNetwork
             // set inputs according to inputValues
             bool?[] inputsArray = TristateBool.arrayFromString(inputValues);
             if (inputsArray.Length != inputs.Count) {
-                throw new SyntaxErrorException("Wrong number of values.");
+                throw new ArgumentException("Wrong number of values.");
             }
             setPortGroup(inputsArray, inputs);
             // cycle until bail-out
@@ -922,6 +956,7 @@ namespace LogicNetwork
         public void parseGates(StreamReader inputStream) {
             string line = null;
             int linesRead = 0;
+            bool simpleGateDefined = false;
             while ((line = inputStream.ReadLine()) != null) {
                 linesRead++;
                 // NOTE: Rules which lines to ignore are already
@@ -938,28 +973,70 @@ namespace LogicNetwork
                 string[] parts = line.Split(' ');
                 if (parts[0].Equals("gate")) {
                     if (parts.Length != 2) {
-                        throw new SyntaxErrorException();
+                        throw new SyntaxErrorException(linesRead);
                     }
                     SimpleGate gate;
-                    linesRead += SimpleGate.Parser.parseSimpleGate(inputStream, out gate);
-                    defineGate(parts[1], gate);
+                    try {
+                        linesRead += SimpleGate.Parser.parseSimpleGate(inputStream, out gate);
+                    }
+                    catch (SyntaxErrorException ex) {
+                        ex.Line += linesRead;
+                        throw ex;
+                    }
+                    try {
+                        defineGate(parts[1], gate);
+                    }
+                    catch (DuplicateDefinitionException ex) {
+                        ex.Line = linesRead;
+                        throw ex;
+                    }
+                    simpleGateDefined = true;
                 } else if (parts[0].Equals("composite")) {
                     if (parts.Length != 2) {
-                        throw new SyntaxErrorException();
+                        throw new SyntaxErrorException(linesRead);
                     }
                     CompositeGate gate;
-                    linesRead += CompositeGate.Parser.parseCompositeGate(inputStream, out gate);
-                    defineGate(parts[1], gate);
+                    try {
+                        linesRead += CompositeGate.Parser.parseCompositeGate(inputStream, out gate);
+                    }
+                    catch (SyntaxErrorException ex) {
+                        ex.Line += linesRead;
+                        throw ex;
+                    }
+                    try {
+                        defineGate(parts[1], gate);
+                    }
+                    catch (DuplicateDefinitionException ex) {
+                        ex.Line = linesRead;
+                        throw ex;
+                    }
                 } else if (parts[0].Equals("network")) {
                     Network gate;
-                    linesRead += Network.Parser.parseNetwork(inputStream, out gate);
-                    defineGate("", gate);
+                    try {
+                        linesRead += Network.Parser.parseNetwork(inputStream, out gate);
+                    }
+                    catch (SyntaxErrorException ex) {
+                        ex.Line += linesRead;
+                        throw ex;
+                    }
+                    try {
+                        defineGate("", gate);
+                    }
+                    catch (DuplicateDefinitionException ex) {
+                        ex.Line = linesRead;
+                        throw ex;
+                    }
                 } else {
-                    throw new SyntaxErrorException();
+                    throw new SyntaxErrorException(linesRead);
                 }
             }
+            // there must be exactly one network
             if (network == null) {
-                throw new GateInconsistenceException("No network defined.");
+                throw new SyntaxErrorException("No network defined.", linesRead);
+            }
+            // there must be at least one simple gate
+            if (!simpleGateDefined) {
+                throw new SyntaxErrorException("No simple gate defined.", linesRead);
             }
         }
 
@@ -970,12 +1047,12 @@ namespace LogicNetwork
             }
             if (gate is Network) {
                 if (network != null) {
-                    throw new GateInconsistenceException("Defining more than one network.");
+                    throw new DuplicateDefinitionException("Defining more than one network.");
                 }
                 network = (Network)gate;
             } else {
                 if (gates.ContainsKey(gateName)) {
-                    throw new GateInconsistenceException("Duplicate gate definition.");
+                    throw new DuplicateDefinitionException("Duplicate gate definition.");
                 }
                 gates.Add(gateName, gate);
             }
@@ -1040,20 +1117,43 @@ namespace LogicNetwork
     }
 
     class SyntaxErrorException : ApplicationException {
-        public SyntaxErrorException() {}
+        protected int line;
+        
+        public int Line {
+            get { return line; }
+            set { line = value; }
+        }
+
+        public SyntaxErrorException() : this(0) { }
 
         public SyntaxErrorException(int line) : this("", line) { }
 
-        public SyntaxErrorException(string message) : base(message) { }
+        public SyntaxErrorException(string message) : this(message, 0) { }
 
-        public SyntaxErrorException(string message, int line)
-            : base(String.Format("Line {0}: {1}", line, message)) { }
+        public SyntaxErrorException(string message, int line) : base(message) {
+            this.line = line;
+        }
     }
 
-    class GateInconsistenceException : ApplicationException {
-        public GateInconsistenceException() {}
-        
-        public GateInconsistenceException(string message) : base(message) { }
+    class DuplicateDefinitionException : SyntaxErrorException {
+        //public DuplicateDefinitionException() { }
+        //public DuplicateDefinitionException(int line) : base(line) {}
+        public DuplicateDefinitionException(string message) : base(message) { }
+        public DuplicateDefinitionException(string message, int line) : base(message, line) { }
+    }
+
+    class BindingRuleException : SyntaxErrorException {
+        //public BindingRuleException() { }
+        public BindingRuleException(int line) : base(line) {}
+        //public BindingRuleException(string message) : base(message) { }
+        //public BindingRuleException(string message, int line) : base(message, line) { }
+    }
+
+    class MissingKeywordException : SyntaxErrorException {
+        //public MissingKeywordException() { }
+        //public MissingKeywordException(int line) : base(line) {}
+        //public MissingKeywordException(string message) : base(message) { }
+        public MissingKeywordException(string message, int line) : base(message, line) { }
     }
 
     class Program
@@ -1077,12 +1177,20 @@ namespace LogicNetwork
                 try {
                     gateFactory.parseGates(reader);
                 }
-                catch (SyntaxErrorException ex) {
-                    Console.WriteLine("Syntax error: {0}", ex.Message);
+                catch (DuplicateDefinitionException ex) {
+                    Console.WriteLine("Line {0}: Duplicate. {1}", ex.Line, ex.Message);
                     return;
                 }
-                catch (GateInconsistenceException ex) {
-                    Console.WriteLine("Gate inconsistence: {0}", ex.Message);
+                catch (BindingRuleException ex) {
+                    Console.WriteLine("Line {0}: Binding rule broken. {1}", ex.Line, ex.Message);
+                    return;
+                }
+                catch (MissingKeywordException ex) {
+                    Console.WriteLine("Line {0}: Missing keyword. {1}", ex.Line, ex.Message);
+                    return;
+                }
+                catch (SyntaxErrorException ex) {
+                    Console.WriteLine("Line {0}: Syntax error. {1}", ex.Line, ex.Message);
                     return;
                 }
                 catch (ArgumentException ex) {
@@ -1091,6 +1199,9 @@ namespace LogicNetwork
                 }
             } catch (FileNotFoundException) {
                 Console.WriteLine("File not found: {0}", args[0]);
+                return;
+            } catch (IOException ex) {
+                Console.WriteLine(ex.Message);
                 return;
             } finally {
                 if (fs != null) {
@@ -1112,13 +1223,13 @@ namespace LogicNetwork
                     try {
                         Console.WriteLine(network.evaluate(line));
                     }
-                    catch (SyntaxErrorException ex) {
-                        Console.WriteLine("Syntax error: {0}", ex.Message);
+                    catch (ArgumentException ex) {
+                        Console.WriteLine("Syntax error. {0}", ex.Message);
                         continue;
                     }
-                    catch (ArgumentException ex) {
-                        Console.WriteLine("Invalid argument: {0}", ex.Message);
-                        continue;
+                    catch (ApplicationException ex) {
+                        Console.WriteLine(ex.Message);
+                        break;
                     }
                 }
             }
