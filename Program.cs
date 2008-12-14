@@ -15,7 +15,7 @@ namespace LogicNetwork
     //   * return information about stabilizing
     // * Network.evaluate()
     // * cloning
-    // - write testing code or test manually
+    // * test it
     //   - test infinite loop
     // * write parsing from definition file
     // * errors -> exceptions or other handling
@@ -25,18 +25,22 @@ namespace LogicNetwork
     //   * count lines to know where a syntax exception occured
     //   * make exceptions know about the line numbers
     //   - print less info (according to specification)
-    // - write more comments
-    //   - to Parsers
+    // * write more comments
+    //   * to Parsers
     // * define implicit constant gates 0, 1 in the network
     //   - try to move the code to Network class
-    // - ToString() should speak less
     // * make a check in parseConnection()
     // * fix isCorrectlyParsed()
     // * put parsing functions to nested (inner) classes
     //   * make a hierarchy
     //   * there would be current line number (of the stream)
+    // - GatePrototypeFactory - solve an inefficiency when
+    //   defining composite gates
+    // - turn comments into XML comments
+    // - ToString() should speak less
 
-    // Abstract base for all logic gates.
+    // Abstract base for all logic gates (including gate networks).
+    // Defines working with input and output ports.
     // Part of Composite design pattern.
     abstract class Gate {
 
@@ -47,22 +51,23 @@ namespace LogicNetwork
         // from outside of Gate and its descendants.
         public class Port {
             // Port value
-            bool? value; // three-state logic (true, false, null) = (1, 0, ?)
+            // Three-state logic (true, false, null) = (1, 0, ?).
+            // See TristateBool class for (de)serialization.
+            bool? value;
             
             public bool? Value {
                 get { return this.value; }
                 set { this.value = value; }
             }
-
             
-            public enum IOType
-            {
+            // Type of port (input, output)
+            public enum IOType {
                 INPUT,
                 OUTPUT
             }
 
             // Port type
-            IOType type; // (input, output)
+            IOType type;
 
             public IOType Type {
                 get { return type; }
@@ -73,6 +78,12 @@ namespace LogicNetwork
                 this.type = type;
             }
 
+            public Port(bool? value, IOType type) {
+                this.value = value;
+                this.type = type;
+            }
+
+            // Copy constructor
             public Port(Port other) {
                 if (other != null) {
                     value = other.value;
@@ -80,18 +91,22 @@ namespace LogicNetwork
                 }
             }
 
-            public Port(bool? value, IOType type) {
-                this.value = value;
-                this.type = type;
-            }
-
             public override string ToString() {
                 return TristateBool.toString(value);
             }
         }
 
+        // Gate Parser.
+        // Contains useful functions for parsing gate
+        // from configuration file common to all gates.
+        // There is a whole hierarchy of Parsers as nested classes
+        // to their respective gate classes.
+        // Non-abstract gate parsers contain a factory method
+        // for creating gate prototypes.
+        // It counts lines read from input stream to know
+        // where an exception occurred.
         public class Parser {
-            Gate gate;
+            Gate gate; // reference to gate being parsed
 
             Gate ParsedGate {
                 get { return gate; }
@@ -203,6 +218,12 @@ namespace LogicNetwork
 
         // Get values of a whole group of ports
         protected bool?[] getPortGroup(Dictionary<string, Port> ports) {
+            // NOTE: We are depending on order given by an iterator
+            // over ports dictionary! We're not modifying these
+            // dictionaries, so it should be safe, but one never knows...
+            // The same holds for setPortGroup() and getPortNames().
+            // TIP: It might be enought to have Port.IOType as a parameter
+            // instead of reference Dictionary<string, Port>.
             bool?[] values = new bool?[ports.Count];
             int i = 0;
             foreach (KeyValuePair<string, Port> kvp in ports) {
@@ -213,7 +234,11 @@ namespace LogicNetwork
         }
 
         // Set values of a whole group of ports
-        protected void setPortGroup(bool?[] portArray, Dictionary<string, Port> ports) {
+        protected void setPortGroup(
+            bool?[] portArray,
+            Dictionary<string, Port> ports)
+        {
+            // NOTE: See notes in getPortGroup().
             int i = 0;
             foreach (KeyValuePair<string, Port> kvp in ports) {
                 if (i >= portArray.Length) {
@@ -237,8 +262,7 @@ namespace LogicNetwork
         // Get names of ports from selected group
         private string[] getPortNames(Dictionary<string, Port> ports) {
             List<string> names = new List<string>();
-            // NOTE: there might a problem that ports.Keys
-            // does not guarantee the order of elements
+            // NOTE: See a note in getPortGroup() on order of elements.
             foreach (string key in ports.Keys) {
                 names.Add(key);
             }
@@ -279,7 +303,13 @@ namespace LogicNetwork
 
     }
 
+    // Simple gate.
+    // Transitions from input to output values are driven
+    // only by a transition function (represented by a table
+    // and some implicit rules).
     class SimpleGate : Gate {
+        // Simple gate parser
+        // Contains a factory method parseSimpleGate()
         new public class Parser : Gate.Parser
         {
             SimpleGate gate;
@@ -288,8 +318,7 @@ namespace LogicNetwork
                 get { return gate; }
             }
 
-            public Parser(SimpleGate gate)
-                : base(gate) {
+            public Parser(SimpleGate gate) : base(gate) {
                 this.gate = gate;
             }
 
@@ -566,8 +595,6 @@ namespace LogicNetwork
                 if (parts.Length != 2) {
                     throw new SyntaxErrorException("Invalid gate connection format", Line);
                 }
-                // TODO: check if it is ok to connect the two ports
-                // else -> Binding rule broken
                 try {
                     gate.connect(parts[1], parts[0]);
                 }
@@ -659,14 +686,6 @@ namespace LogicNetwork
                             transmit(src, dest);
                         }
                     }
-
-                    // Without reverseConnections
-                    // This is an O(n) search and might be too slow!
-                    //foreach (KeyValuePair<string, string> connKVP in connections) {
-                    //    if (connKVP.Value.Equals(src)) {
-                    //        transmit(src, connKVP.Key);
-                    //    }
-                    //}
                 }
             }
             // return true, if output values have not changed during tick()
@@ -697,6 +716,7 @@ namespace LogicNetwork
             //   gate.input->input
             //   gate.input->gate.output
             //   output->gate.output
+            // TODO: Try to make this a bit simpler to comprehend.
 
             if (!(((destGate != this) && (destPort.Type == Port.IOType.INPUT)
                     && (((srcGate == this) && (srcPort.Type == Port.IOType.INPUT)) ||
@@ -808,7 +828,12 @@ namespace LogicNetwork
         }
     }
 
+    // Composite gate.
+    // A gate containing simple or composite gates and
+    // defining interconnections between them.
     class CompositeGate : AbstractCompositeGate {
+        // Composite gate parser.
+        // Contains a factory method parseCompositeGate().
         public new class Parser : AbstractCompositeGate.Parser
         {
             CompositeGate gate;
@@ -821,7 +846,6 @@ namespace LogicNetwork
                 : base(gate) {
                 this.gate = gate;
             }
-
 
             // Create a composite gate prototype from string representation
             // NOTE: A common parsing code is in parseAbstractCompositeGate().
@@ -840,23 +864,9 @@ namespace LogicNetwork
             // A hook for parseAbstractCompositeGate() with
             // class specific details and rules
             protected override bool isCorrectlyParsed() {
-                // Check if input ports are not directly connected
-                // to output ports.
-                string[] inputPortNames = gate.getInputPortNames();
-                foreach (string inputPortName in inputPortNames) {
-                    List<string> connectedPorts = gate.reverseConnections[inputPortName];
-                    if (connectedPorts == null) {
-                        // inconsistence between connections and reverseConnections
-                        throw new SyntaxErrorException(Line);
-                    }
-                    foreach (string port in connectedPorts) {
-                        if (isValidIdentifier(port)) {
-                            // port is not in form gate.port, so it is
-                            // this gate's port
-                            return false; // input port connected to output port
-                        }
-                    }
-                }
+                // If input ports are not directly connected to output
+                // ports has been already checked in
+                // AbstractCompositeGate.connect() when adding the port.
                 return true;
             }
         }
@@ -874,7 +884,14 @@ namespace LogicNetwork
         }
     }
 
+    // Logic gate network.
+    // Network behaves pretty much as CompositeGate so it has been
+    // decided to let them have a common ancestor: AbstractCompositeGate.
+    // There are only minor differences in parsing rules and
+    // how are they treated in the GatePrototypeFactory.
     class Network : AbstractCompositeGate {
+        // Network parser.
+        // Contains a factory method parseNetwork().
         public new class Parser : AbstractCompositeGate.Parser
         {
             Network gate;
@@ -934,16 +951,10 @@ namespace LogicNetwork
                     // Check if it is connected to at least one
                     // _inner gate_ input port and no output ports of this gate.
                     // (Composite gate input ports can't be connected
-                    // directly to that gate output ports!)
+                    // directly to that gate output ports.)
+                    // The latter is already checked in AbstractCompositeGate.connect().
                     if (connectedPorts.Count <= 0) {
                         return false; // not connected
-                    }
-                    foreach (string port in connectedPorts) {
-                        if (isValidIdentifier(port)) {
-                            // port is not in form gate.port, so it is
-                            // this gate's port
-                            return false; // input port connected to output port
-                        }
                     }
                 }
                 return true;
@@ -989,9 +1000,23 @@ namespace LogicNetwork
         }
     }
 
+    // Gate prototype factory.
+    // Design patterns: Prototype, Singleton.
+    // This factory parses a configuration file and creates
+    // a pool of gate prototype objects (corresponding to
+    // various types of gates defined in the file).
+    // Then it is possible to clone these prototypes to create
+    // instances for general usage.
+    // In fact only port values are cloned, 
+    // Eg.
+    // * Any gate prototype has its ports prepared
+    // * SimpleGate prototype has its transition table filled
+    // * CompositeGate or Network prototype has its inner gates
+    //   prepared and interconnected.
+    //   TODO: This is not very efficient!
+    //   In fact when defining a composite gate prototype
+    //   all inner gates (recursively) are cloned!
     class GatePrototypeFactory {
-        // Singleton design pattern
-
         // Singleton instance
         private static GatePrototypeFactory instance = null;
 
@@ -1039,6 +1064,7 @@ namespace LogicNetwork
 
                 string[] parts = line.Split(' ');
                 if (parts[0].Equals("gate")) {
+                    // parse SimpleGate
                     if (parts.Length != 2) {
                         throw new SyntaxErrorException(linesRead);
                     }
@@ -1060,6 +1086,7 @@ namespace LogicNetwork
                     }
                     simpleGateDefined = true;
                 } else if (parts[0].Equals("composite")) {
+                    // parse CompositeGate
                     if (parts.Length != 2) {
                         throw new SyntaxErrorException(linesRead);
                     }
@@ -1080,6 +1107,7 @@ namespace LogicNetwork
                         throw ex;
                     }
                 } else if (parts[0].Equals("network")) {
+                    // parse Network
                     Network gate;
                     try {
                         linesRead += Network.Parser.parseNetwork(inputStream, out gate);
@@ -1187,6 +1215,9 @@ namespace LogicNetwork
         }
     }
 
+    // Syntax error.
+    // General error of configuration file syntax or values given
+    // in interactive evaluation.
     class SyntaxErrorException : ApplicationException {
         protected int line;
         
@@ -1206,6 +1237,7 @@ namespace LogicNetwork
         }
     }
 
+    // Duplicate definition.
     class DuplicateDefinitionException : SyntaxErrorException {
         //public DuplicateDefinitionException() { }
         //public DuplicateDefinitionException(int line) : base(line) {}
@@ -1213,6 +1245,8 @@ namespace LogicNetwork
         public DuplicateDefinitionException(string message, int line) : base(message, line) { }
     }
 
+    // Binding rules broken.
+    // Something went wrong when connecting ports between gates.
     class BindingRuleException : SyntaxErrorException {
         //public BindingRuleException() { }
         public BindingRuleException(int line) : base(line) {}
@@ -1220,6 +1254,8 @@ namespace LogicNetwork
         //public BindingRuleException(string message, int line) : base(message, line) { }
     }
 
+    // Missing keyword.
+    // A mandatory section in gate definition was omited.
     class MissingKeywordException : SyntaxErrorException {
         //public MissingKeywordException() { }
         //public MissingKeywordException(int line) : base(line) {}
@@ -1227,6 +1263,10 @@ namespace LogicNetwork
         public MissingKeywordException(string message, int line) : base(message, line) { }
     }
 
+    // Main program class.
+    // The program works in two phases:
+    //   * parsing the configuration file and creating gate prototypes
+    //   * instantiating the network and interactive evaluating it
     class Program
     {
         static void Main(string[] args) {
@@ -1283,13 +1323,13 @@ namespace LogicNetwork
             // create an instance of the network
             Network network = gateFactory.Network;
             
-            // main evaluating loop
+            // main interactive evaluating loop
             string line = "";
             while ((line = Console.ReadLine()) != null) {
                 if (line.Equals("end")) {
                     break;
-                } else if (line.Equals("print network")) {
-                    Console.WriteLine(network); //DEBUG
+                //} else if (line.Equals("print network")) {
+                //    Console.WriteLine(network); //DEBUG
                 } else {
                     try {
                         Console.WriteLine(network.evaluate(line));
