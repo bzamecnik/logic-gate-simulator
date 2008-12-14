@@ -16,7 +16,7 @@ namespace LogicNetwork
     // * Network.evaluate()
     // * cloning
     // * test it
-    //   - test infinite loop
+    //   * test infinite loop
     // * write parsing from definition file
     // * errors -> exceptions or other handling
     //   * translate inner exceptions to other exceptions
@@ -24,7 +24,7 @@ namespace LogicNetwork
     //   * how to find out the line number where syntax error occured?
     //   * count lines to know where a syntax exception occured
     //   * make exceptions know about the line numbers
-    //   - print less info (according to specification)
+    //   * print less info (according to specification)
     // * write more comments
     //   * to Parsers
     // * define implicit constant gates 0, 1 in the network
@@ -38,6 +38,9 @@ namespace LogicNetwork
     //   defining composite gates
     // - turn comments into XML comments
     // - ToString() should speak less
+    // - tick() - it is very slow on MAX_TICKS=1000000 (infinite loop)
+    //   (~40s on Celeron M 1400MHz)
+    //   - it need to profiling to find bottlenecks
 
     // Abstract base for all logic gates (including gate networks).
     // Defines working with input and output ports.
@@ -1211,7 +1214,12 @@ namespace LogicNetwork
         }
 
         public static bool isValidArray(string str) {
-            return str.Equals(arrayToString(arrayFromString(str)));
+            try {
+                return str.Equals(arrayToString(arrayFromString(str)));
+            }
+            catch (ArgumentException) {
+                return false;
+            }
         }
     }
 
@@ -1289,25 +1297,27 @@ namespace LogicNetwork
                     gateFactory.parseGates(reader);
                 }
                 catch (DuplicateDefinitionException ex) {
-                    Console.WriteLine("Line {0}: Duplicate. {1}", ex.Line, ex.Message);
+                    // NOTE: Discarding some information to comply with specification.
+                    //Console.WriteLine("Line {0}: Duplicate. {1}", ex.Line, ex.Message);
+                    Console.WriteLine("Line {0}: Duplicate.", ex.Line);
                     return;
                 }
                 catch (BindingRuleException ex) {
-                    Console.WriteLine("Line {0}: Binding rule broken. {1}", ex.Line, ex.Message);
+                    //Console.WriteLine("Line {0}: Binding rule broken. {1}", ex.Line, ex.Message);
+                    Console.WriteLine("Line {0}: Binding rule broken.", ex.Line);
                     return;
                 }
                 catch (MissingKeywordException ex) {
-                    Console.WriteLine("Line {0}: Missing keyword. {1}", ex.Line, ex.Message);
+                    //Console.WriteLine("Line {0}: Missing keyword. {1}", ex.Line, ex.Message);
+                    Console.WriteLine("Line {0}: Missing keyword.", ex.Line);
                     return;
                 }
                 catch (SyntaxErrorException ex) {
-                    Console.WriteLine("Line {0}: Syntax error. {1}", ex.Line, ex.Message);
+                    //Console.WriteLine("Line {0}: Syntax error. {1}", ex.Line, ex.Message);
+                    Console.WriteLine("Line {0}: Syntax error.", ex.Line);
                     return;
                 }
-                catch (ArgumentException ex) {
-                    Console.WriteLine("Invalid argument: {0}", ex.Message);
-                    return;
-                }
+                // NOTE: ArgumentExceptions were caught and translated.
             } catch (FileNotFoundException) {
                 Console.WriteLine("File not found: {0}", args[0]);
                 return;
@@ -1335,7 +1345,8 @@ namespace LogicNetwork
                         Console.WriteLine(network.evaluate(line));
                     }
                     catch (ArgumentException ex) {
-                        Console.WriteLine("Syntax error. {0}", ex.Message);
+                        //Console.WriteLine("Syntax error. {0}", ex.Message);
+                        Console.WriteLine("Syntax error.");
                         continue;
                     }
                     catch (ApplicationException ex) {
