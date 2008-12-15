@@ -24,7 +24,6 @@ namespace LogicNetwork
     //   * how to find out the line number where syntax error occured?
     //   * count lines to know where a syntax exception occured
     //   * make exceptions know about the line numbers
-    //   * print less info (according to specification)
     // * write more comments
     //   * to Parsers
     // * define implicit constant gates 0, 1 in the network
@@ -41,6 +40,8 @@ namespace LogicNetwork
     // - tick() - it is very slow on MAX_TICKS=1000000 (infinite loop)
     //   (~40s on Celeron M 1400MHz)
     //   - it need to profiling to find bottlenecks
+    // - sometimes it takes one tick less to evaluate the network
+    //   than in given examples (output values are the same however)
 
     // Abstract base for all logic gates (including gate networks).
     // Defines working with input and output ports.
@@ -1281,6 +1282,7 @@ namespace LogicNetwork
             if (args.Length != 1) {
                 // no file specified
                 Console.WriteLine("Usage: LogicNetwork.exe definition_file.txt");
+                return;
             }
 
             GatePrototypeFactory gateFactory = GatePrototypeFactory.getInstance();
@@ -1297,24 +1299,19 @@ namespace LogicNetwork
                     gateFactory.parseGates(reader);
                 }
                 catch (DuplicateDefinitionException ex) {
-                    // NOTE: Discarding some information to comply with specification.
-                    //Console.WriteLine("Line {0}: Duplicate. {1}", ex.Line, ex.Message);
-                    Console.WriteLine("Line {0}: Duplicate.", ex.Line);
+                    Console.WriteLine("Line {0}: Duplicate ({1})", ex.Line, ex.Message);
                     return;
                 }
                 catch (BindingRuleException ex) {
-                    //Console.WriteLine("Line {0}: Binding rule broken. {1}", ex.Line, ex.Message);
-                    Console.WriteLine("Line {0}: Binding rule broken.", ex.Line);
+                    Console.WriteLine("Line {0}: Binding rule broken ({1})", ex.Line, ex.Message);
                     return;
                 }
                 catch (MissingKeywordException ex) {
-                    //Console.WriteLine("Line {0}: Missing keyword. {1}", ex.Line, ex.Message);
-                    Console.WriteLine("Line {0}: Missing keyword.", ex.Line);
+                    Console.WriteLine("Line {0}: Missing keyword ({1})", ex.Line, ex.Message);
                     return;
                 }
                 catch (SyntaxErrorException ex) {
-                    //Console.WriteLine("Line {0}: Syntax error. {1}", ex.Line, ex.Message);
-                    Console.WriteLine("Line {0}: Syntax error.", ex.Line);
+                    Console.WriteLine("Line {0}: Syntax error ({1})", ex.Line, ex.Message);
                     return;
                 }
                 // NOTE: ArgumentExceptions were caught and translated.
@@ -1345,8 +1342,7 @@ namespace LogicNetwork
                         Console.WriteLine(network.evaluate(line));
                     }
                     catch (ArgumentException ex) {
-                        //Console.WriteLine("Syntax error. {0}", ex.Message);
-                        Console.WriteLine("Syntax error.");
+                        Console.WriteLine("Syntax error ({0})", ex.Message);
                         continue;
                     }
                     catch (ApplicationException ex) {
