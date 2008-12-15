@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Text;
 using System.IO;
@@ -6,7 +6,7 @@ using System.IO;
 // Logic gate network simulator
 //
 // Author: Bohumir Zamecnik <bohumir@zamecnik.org>
-// Date: 2009/12
+// $Id$
 namespace LogicNetwork
 {
 
