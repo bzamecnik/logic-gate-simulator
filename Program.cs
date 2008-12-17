@@ -40,7 +40,7 @@ namespace LogicNetwork
     // - tick() - it is very slow on MAX_TICKS=1000000 (infinite loop)
     //   (~40s on Celeron M 1400MHz)
     //   - it need to profiling to find bottlenecks
-    // - sometimes it takes one tick less to evaluate the network
+    // * sometimes it takes one tick less to evaluate the network
     //   than in given examples (output values are the same however)
 
     // Abstract base for all logic gates (including gate networks).
@@ -185,10 +185,10 @@ namespace LogicNetwork
         // Used in tick().
         protected bool stabilized;
 
-        //protected bool Stabilized {
-        //    get { return stabilized; }
-        //    set { stabilized = value; }
-        //}
+        public bool Stabilized {
+            get { return stabilized; }
+            set { stabilized = value; }
+        }
 
         protected Gate() {
             initialize();
@@ -208,7 +208,7 @@ namespace LogicNetwork
         private void initialize() {
             inputs = new Dictionary<string, Port>();
             outputs = new Dictionary<string, Port>();
-            stabilized = true;
+            Stabilized = true;
         }
 
         // Cloning support for the Prototype pattern
@@ -453,14 +453,14 @@ namespace LogicNetwork
             bool?[] newOutputValues = compute(inputValues);
             for (int i = 0; i < oldOutputValues.Length; i++) {
                 if (oldOutputValues[i] != newOutputValues[i]) {
-                    stabilized = false;
+                    Stabilized = false;
                     break;
                 }
             }
             // assign new output values to output dictionary
             setPortGroup(newOutputValues, outputs);
             bool oldStabilized = stabilized;
-            stabilized = true;
+            Stabilized = true; // initialize for next tick
             return oldStabilized;
         }
 
@@ -686,7 +686,7 @@ namespace LogicNetwork
 
             // for all inner gates: tick()
             foreach (KeyValuePair<string, Gate> kvp in gates) {
-                stabilized &= kvp.Value.tick();
+                Stabilized &= kvp.Value.tick();
             }
             
             // transmit values from inner gates' outputs to ports where they point to
@@ -704,21 +704,10 @@ namespace LogicNetwork
                     }
                 }
             }
-            // return true, if output values have not changed during tick()
-            // ie. the gate and its subgates have stabilized
             bool oldStabilized = stabilized;
-            stabilized = true;
-            if (!oldStabilized) {
-                return false;
-            } else {
-                bool?[] newOutputValues = getPortGroup(outputs);
-                for (int i = 0; i < oldOutputValues.Length; i++) {
-                    if (oldOutputValues[i] != newOutputValues[i]) {
-                        return false;
-                    }
-                }
-            }
-            return true;
+            Stabilized = true; // initialize for next tick
+            // return true, the gate and its subgates have stabilized
+            return oldStabilized;
         }
 
         // Connect two ports
@@ -759,9 +748,10 @@ namespace LogicNetwork
         // Transmit a value from source [gate.]port to destination [gate.]port
         protected void transmit(string src, string dest) {
             Port srcPort = getPortByAddress(src);
-            Port destPort = getPortByAddress(dest);
+            Gate destGate = null;
+            Port destPort = getPortAndGateByAddress(dest, out destGate);
             if (destPort.Value != srcPort.Value) {
-                stabilized = false;
+                destGate.Stabilized = false;
             }
             destPort.Value = srcPort.Value;
         }
