@@ -181,6 +181,15 @@ namespace LogicNetwork
         protected Dictionary<string, Port> inputs; // input ports
         protected Dictionary<string, Port> outputs; // output ports
 
+        // Has the gate stabilized itself?
+        // Used in tick().
+        protected bool stabilized;
+
+        //protected bool Stabilized {
+        //    get { return stabilized; }
+        //    set { stabilized = value; }
+        //}
+
         protected Gate() {
             initialize();
         }
@@ -199,6 +208,7 @@ namespace LogicNetwork
         private void initialize() {
             inputs = new Dictionary<string, Port>();
             outputs = new Dictionary<string, Port>();
+            stabilized = true;
         }
 
         // Cloning support for the Prototype pattern
@@ -206,7 +216,9 @@ namespace LogicNetwork
 
         // Make one computing step (or tick) and change outputs somehow.
         // Return true if the gate and all inner gates have
-        // stabilized, ie. output values haven't changed during the tick.
+        // stabilized, ie. output values are already the same
+        // as the transitions function for current input says and
+        // input values haven't changed during the tick.
         public abstract bool tick();
 
         // Get a port
@@ -439,7 +451,6 @@ namespace LogicNetwork
             bool?[] oldOutputValues = getPortGroup(outputs);
             // compute new values
             bool?[] newOutputValues = compute(inputValues);
-            bool stabilized = true;
             for (int i = 0; i < oldOutputValues.Length; i++) {
                 if (oldOutputValues[i] != newOutputValues[i]) {
                     stabilized = false;
@@ -448,7 +459,9 @@ namespace LogicNetwork
             }
             // assign new output values to output dictionary
             setPortGroup(newOutputValues, outputs);
-            return stabilized;
+            bool oldStabilized = stabilized;
+            stabilized = true;
+            return oldStabilized;
         }
 
         // Compute new output values based on input values
@@ -655,7 +668,6 @@ namespace LogicNetwork
         }
 
         public override bool tick() {
-            bool stabilized = true;
             bool?[] oldOutputValues = getPortGroup(outputs);
 
             // transmit values to inner gates' inputs from ports which point to them
@@ -694,7 +706,9 @@ namespace LogicNetwork
             }
             // return true, if output values have not changed during tick()
             // ie. the gate and its subgates have stabilized
-            if (!stabilized) {
+            bool oldStabilized = stabilized;
+            stabilized = true;
+            if (!oldStabilized) {
                 return false;
             } else {
                 bool?[] newOutputValues = getPortGroup(outputs);
@@ -746,6 +760,9 @@ namespace LogicNetwork
         protected void transmit(string src, string dest) {
             Port srcPort = getPortByAddress(src);
             Port destPort = getPortByAddress(dest);
+            if (destPort.Value != srcPort.Value) {
+                stabilized = false;
+            }
             destPort.Value = srcPort.Value;
         }
 
