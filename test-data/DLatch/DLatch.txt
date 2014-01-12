@@ -1,0 +1,49 @@
+gate nand
+inputs i1 i2
+outputs o
+1 1 0
+0 1 1
+1 0 1
+0 0 1
+? 0 1
+0 ? 1
+end
+
+composite latch
+inputs c d
+outputs q !q
+
+gate nq1 nand
+gate nq2 nand
+gate q1 nand
+gate q2 nand
+
+nq1.i1->c
+nq1.i2->q1.o
+q1.i1->c
+q1.i2->d
+
+nq2.i1->nq1.o
+nq2.i2->q2.o
+q2.i1->nq2.o
+q2.i2->q1.o
+
+!q->nq2.o
+q->q2.o
+end
+
+network
+inputs d1 d2 c
+outputs o1 o2
+gate l1 latch
+gate l2 latch
+
+l1.c->c
+l1.d->d1
+
+l2.c->c
+l2.d->d2
+
+o1->l1.q
+o2->l2.q
+end

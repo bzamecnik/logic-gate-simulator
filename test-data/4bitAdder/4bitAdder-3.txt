@@ -1,0 +1,76 @@
+gate and
+inputs i0 i1
+outputs o
+1 1 1
+end
+
+gate or
+inputs i0 i1
+outputs o
+1 0 1
+0 1 1
+1 1 1
+end
+
+gate xor
+inputs i0 i1
+outputs o
+1 0 1
+0 1 1
+end
+
+composite adder
+inputs a b cin
+outputs s cout
+gate xor1 xor
+gate xor2 xor
+gate and1 and
+gate and2 and
+gate or or
+
+xor1.i0->a
+xor1.i1->b
+xor2.i0->cin
+xor2.i1->xor1.o
+s->xor2.o
+
+and1.i0->a
+and1.i1->b
+and2.i0->cin
+and2.i1->xor1.o
+
+or.i0->and1.o
+or.i1->and2.o
+cout->or.o
+end
+
+network
+inputs a3 a2 a1 a0 b3 b2 b1 b0
+outputs o4 o3 o2 o1 o0
+gate add0 adder
+gate add1 adder
+gate add2 adder
+gate add3 adder
+
+add0.a->a0
+add0.b->b0
+add0.cin->0
+o0->add0.s
+
+add1.a->a1
+add1.b->b1
+add1.cin->add0.cout
+o1->add1.s
+
+add2.a->a2
+add2.b->b2
+add2.cin->add1.cout
+o2->add2.s
+
+add3.a->a3
+add3.b->b3
+add3.cin->add2.cout
+o3->add3.s
+
+o4->add3.cout
+end
